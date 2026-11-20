@@ -283,10 +283,12 @@ function tripSelect(sc) {
 }
 
 /** 狀態膠囊：點了跳原生選單 */
-function statusPill(cur, id) {
-  return `<label class="pill-select tone-${P_STATUS.tones[cur] ?? 'none'}" title="改採購狀態"><span>${esc(STATUS_TEXT_P[cur] ?? cur)}</span>
-    <select data-quick="f2" data-id="${id}" aria-label="採購狀態" data-keep-select>${P_STATUS.options.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(STATUS_TEXT_P[o] ?? o)}</option>`).join('')}</select></label>`;
+/** 狀態膠囊：看起來是有顏色的按鈕，點了跳原生選單（手機上就是系統選單）。labels：顯示用的文字 */
+function choicePill(f, cur, id, labels = {}) {
+  return `<label class="pill-select tone-${f.tones?.[cur] ?? 'none'}" title="改${esc(f.label)}"><span>${esc(labels[cur] ?? cur)}</span>
+    <select data-quick="${f.key}" data-id="${id}" aria-label="${esc(f.label)}" data-keep-select>${f.options.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(labels[o] ?? o)}</option>`).join('')}</select></label>`;
 }
+const statusPill = (cur, id) => choicePill(P_STATUS, cur, id, STATUS_TEXT_P);
 
 /** 一件商品：名稱／規格（＋備註、連結）｜數量｜單價｜狀態。整列依狀態上底色 */
 function proxyItemRow(i, dropTags) {
@@ -362,7 +364,7 @@ function renderProxy() {
   const w = (n) => (s2.n ? (n / s2.n) * 100 : 0);
   const pill = (v, label, n) => `<button type="button" class="pill${f === v ? ' active' : ''}" data-action="proxy-filter" data-v="${v}">${label}${n != null ? ` <span>${n}</span>` : ''}</button>`;
   const isTag = sc.trip && sc.trip !== M.NO_BATCH && sc.trip !== DONE_LOOSE;
-  page.innerHTML = `<div class="proxy-page">
+  page.innerHTML = `<div class="kind-page">
     <header class="trip-head">
       <div>
         <div class="crumb">我的代購清單${sc.isClosed ? ' · <span class="badge tone-none">已結清</span>' : ''}</div>
@@ -413,6 +415,136 @@ function renderProxy() {
   };
 }
 
+// ================================================================ 衣服
+// 我的衣櫃（標題、總覽、色系分布）→ 依部位一張卡片 → 每件（顏色方塊｜名稱、品牌、款式｜尺寸｜價格｜狀態）。
+// 「已丟」平常不顯示（在「已丟」篩選裡）；狀態膠囊點了直接改。
+
+const C_FIELD = (k) => M.fieldsOf('clothes').find((x) => x.key === k);
+const C_PART = C_FIELD('f1');
+const C_STATUS = C_FIELD('f9');
+const C_COLOR = C_FIELD('f6');
+const C_PRICE = C_FIELD('f7');
+/** 色系 → 方塊顏色 */
+const SWATCH = {
+  黑: '#2F2A28', 白: '#FBFAF6', 灰: '#A8A39D', 藍: '#5B7BA6', 綠: '#7E9A6E', 棕: '#8B6A4F', 米: '#D9C9AE',
+  紅: '#B85450', 橘: '#D98E4A', 黃: '#E2C25C', 紫: '#8C7AA8', 粉: '#E3A9B2', 牛仔: '#4F6D8F',
+  多色: 'linear-gradient(135deg, #D98E4A, #E2C25C 35%, #7E9A6E 65%, #5B7BA6)',
+};
+const swatchStyle = (fam) => (SWATCH[fam] ? `background:${SWATCH[fam]}` : '');
+const clothesStatus = (i) => M.dataOf(i).f9 || C_STATUS.def;
+const C_STATUS_FILTER = { '': (s) => s !== '已丟', 想丟: (s) => s === '想丟', 已丟: (s) => s === '已丟', all: () => true };
+
+/** 一件衣服：顏色方塊｜名稱（品牌・款式、備註、連結）｜尺寸｜價格｜狀態 */
+function clothesRow(i) {
+  const d = M.dataOf(i);
+  const st = clothesStatus(i);
+  const m = M.normMoney(d.f7);
+  const sub = [d.f3, d.f2, d.f5].filter(Boolean);
+  const link = d.f10 ? M.linkOf(d.f10) : null;
+  return `<div class="pt-row has-tile row-${C_STATUS.tones[st] ?? 'none'}" data-action="edit-item" data-id="${i.id}">
+    <span class="tile${d.f6 === '白' ? ' tile-light' : ''}" style="${swatchStyle(d.f6)}" title="${esc(d.f6 || '沒填色系')}">${d.f6 ? '' : esc([...(d.f5 || i.name)][0] ?? '')}</span>
+    <div class="pt-name"><b>${esc(i.name)}</b>${link ? ` <a class="pt-link" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(d.f10))}" aria-label="開啟網址">${svgIcon(link.search ? 'search' : 'external')}</a>` : ''}
+      ${sub.length ? `<div class="pt-sub">${sub.map(esc).join(' · ')}</div>` : ''}${noteHTML(i.note)}</div>
+    <div class="pt-qty">${esc(d.f4 ?? '')}</div>
+    <div class="pt-price">${m ? `${CUR_SIGN[m.c]}${fmt(m.a)}` : '<span class="text-muted">—</span>'}</div>
+    <div class="pt-status">${choicePill(C_STATUS, st, i.id)}</div>
+  </div>`;
+}
+
+/** 一個部位的卡片（短袖、長袖…）：件數、想丟幾件、花費；可以收合 */
+function partCard(part, rows, all, opened) {
+  const toss = all.filter((i) => clothesStatus(i) === '想丟').length;
+  const spent = M.sumTWD(all, C_PRICE).total;
+  return `<section class="pc${opened ? '' : ' is-collapsed'}">
+    <div class="pc-head" data-action="toggle-part" data-part="${esc(part)}" role="button" tabindex="0" aria-expanded="${opened}">
+      <span class="avatar">${esc([...part][0] ?? '?')}</span>
+      <div class="pc-name"><b>${esc(part)}</b><span>${all.length} 件${toss ? ` · 想丟 ${toss} 件` : ''}</span></div>
+      <div class="pc-amount"><span>花費</span><b>NT$${fmt(spent, 0)}</b></div>
+      <span class="pc-chev">${svgIcon('chevron-right')}</span>
+    </div>
+    ${opened ? `<div class="pt"><div class="pt-head has-tile"><span></span><span>衣服</span><span>尺寸</span><span>價格</span><span>狀態</span></div>
+      ${rows.map(clothesRow).join('')}</div>` : '<div class="pc-gap"></div>'}
+  </section>`;
+}
+
+function clothesList(all, f) {
+  const q = state.search.clothes ?? '';
+  const fields = M.fieldsOf('clothes');
+  const byStatus = C_STATUS_FILTER[f.__status ?? ''] ?? C_STATUS_FILTER[''];
+  const ok = (i) => byStatus(clothesStatus(i)) && (!f.__color || M.dataOf(i).f6 === f.__color) && M.itemMatches(i, fields, q);
+  const parts = f.__part ? [f.__part] : [...C_PART.options, M.EMPTY];
+  const opens = f.__open ?? {};
+  const filtering = !!(q || f.__color || f.__status);
+  const cards = parts.map((part) => {
+    const inPart = all.filter((i) => (M.dataOf(i).f1 || M.EMPTY) === part);
+    const rows = inPart.filter(ok).sort((a, b) => (clothesStatus(a) === '想丟') - (clothesStatus(b) === '想丟') || byName(a, b));
+    if (!rows.length) return '';
+    return partCard(part, rows, inPart.filter((i) => clothesStatus(i) !== '已丟'), filtering || f.__part ? true : opens[part] ?? true);
+  }).join('');
+  return cards || `<p class="empty-state">${all.length ? '沒有符合的。換個篩選或關鍵字。' : '衣櫃還是空的。按「新增衣服」開始。'}</p>`;
+}
+
+function renderClothes() {
+  const f = (state.filters.clothes ||= {});
+  const all = itemsOf('clothes');
+  const fields = M.fieldsOf('clothes');
+  const keep = all.filter((i) => clothesStatus(i) !== '已丟');
+  const toss = all.filter((i) => clothesStatus(i) === '想丟').length;
+  const gone = all.length - keep.length;
+  const spent = M.sumTWD(keep, C_PRICE);
+  const foreign = M.foreignCurrencies(all, fields);
+  // 色系分布（衣櫃裡的，不含已丟）
+  const colors = M.countBy(keep, C_COLOR).filter((x) => x.value !== M.EMPTY);
+  const noColor = keep.length - colors.reduce((n, x) => n + x.n, 0);
+  const pill = (key, v, label, n) => `<button type="button" class="pill${(f[key] ?? '') === v ? ' active' : ''}" data-action="kind-filter" data-kind="clothes" data-key="${key}" data-v="${esc(v)}">${esc(label)}${n != null ? ` <span>${n}</span>` : ''}</button>`;
+  const partN = (p) => keep.filter((i) => M.dataOf(i).f1 === p).length;
+  page.innerHTML = `<div class="kind-page">
+    <header class="trip-head">
+      <div>
+        <div class="crumb">我的衣櫃</div>
+        <h1>衣服</h1>
+        <p class="trip-sub">看看自己有什麼，少買重複的。</p>
+      </div>
+      <div class="trip-actions">
+        <details class="more-menu"><summary class="btn btn-outline btn-sm btn-icon" aria-label="更多" title="更多">⋯</summary>
+          <div class="more-list">
+            ${foreign.length ? `<button type="button" data-action="set-rate" data-kind="clothes">${icon('coins')}整批改匯率</button>` : ''}
+            <button type="button" data-action="export-csv" data-kind="clothes">${icon('download')}下載 CSV</button>
+          </div></details>
+        <button type="button" class="btn btn-primary" data-action="new-item" data-kind="clothes">${icon('plus')}新增衣服</button>
+      </div>
+    </header>
+    ${all.length ? `
+    <div class="kpis">
+      <div class="kpi"><span>衣櫃裡 ${svgIcon('shirt')}</span><b>${keep.length} 件</b><small>不含已丟</small></div>
+      <div class="kpi kpi-ok"><span>總共花了 ${svgIcon('wallet')}</span><b>NT$${fmt(spent.total, 0)}</b>${spent.missing ? `<small>${spent.missing} 件外幣沒匯率</small>` : '<small>衣櫃裡的</small>'}</div>
+      <button type="button" class="kpi kpi-warn" data-action="kind-filter" data-kind="clothes" data-key="__status" data-v="想丟"><span>想丟 ${svgIcon('alert')}</span><b>${toss} 件</b><small>點一下只看想丟的</small></button>
+      <button type="button" class="kpi kpi-bad" data-action="kind-filter" data-kind="clothes" data-key="__status" data-v="已丟"><span>已丟 ${svgIcon('trash')}</span><b>${gone} 件</b><small>點一下看已丟的</small></button>
+    </div>
+    ${colors.length ? `<div class="progress-card">
+      <div class="progress-top"><b>色系</b><span class="text-muted">${keep.length} 件${noColor ? ` · ${noColor} 件沒填` : ''}</span></div>
+      <div class="stack">${colors.map((x) => `<i style="width:${(x.n / keep.length) * 100}%;${swatchStyle(x.value)}" title="${esc(x.value)} ${x.n} 件"></i>`).join('')}</div>
+      <div class="swatch-legend">${colors.map((x) => `<button type="button" class="swatch-btn${f.__color === x.value ? ' active' : ''}" data-action="kind-filter" data-kind="clothes" data-key="__color" data-v="${esc(f.__color === x.value ? '' : x.value)}"><i class="${x.value === '白' ? 'tile-light' : ''}" style="${swatchStyle(x.value)}"></i>${esc(x.value)} ${x.n}</button>`).join('')}</div>
+    </div>` : ''}` : ''}
+    <div class="list-head"><h2>我的衣櫃</h2><span>${f.__color ? `只看 ${esc(f.__color)} · <button type="button" class="link-btn" data-action="kind-filter" data-kind="clothes" data-key="__color" data-v="">清除</button>` : `${keep.length} 件`}</span></div>
+    <div class="list-tools">
+      <div class="pills">${pill('__part', '', '全部', keep.length)}${C_PART.options.map((p) => pill('__part', p, p, partN(p))).join('')}</div>
+      <input class="search-input" id="search" type="search" placeholder="搜尋名稱、品牌、顏色、備註…" value="${esc(state.search.clothes ?? '')}">
+    </div>
+    <div class="pills pills-sub">${pill('__status', '', '在穿＋想丟')}${pill('__status', '想丟', '想丟', toss)}${pill('__status', '已丟', '已丟', gone)}${pill('__status', 'all', '全部', all.length)}</div>
+    <div id="kind-list">${clothesList(all, f)}</div>
+  </div>`;
+  $('#search').oninput = (e) => {
+    state.search.clothes = e.target.value;
+    $('#kind-list').innerHTML = clothesList(all, f);
+    applyIcons($('#kind-list'));
+  };
+  $('#kind-list').onchange = (e) => {
+    const sel = e.target.closest('select[data-quick]');
+    if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
+  };
+}
+
 /** 新增時先帶入：欄位的預設值（例如狀態＝待買），再用目前的篩選蓋過（篩了批次、幫誰買，新增的就是那一批、那個人） */
 function newItemPreset(kind) {
   const preset = {};
@@ -420,7 +552,7 @@ function newItemPreset(kind) {
   if (batch && batch !== M.NO_BATCH && batch !== DONE_LOOSE) preset.__note = batch; // 現在看的這一趟 → 新的那件備註先寫好 #批次
   for (const f of M.fieldsOf(kind)) {
     if (f.type !== 'choice') continue;
-    const want = kind === 'proxy' ? null : state.filters[kind]?.[f.key];
+    const want = kind === 'proxy' ? null : kind === 'clothes' ? (f.key === 'f1' ? state.filters.clothes?.__part : null) : state.filters[kind]?.[f.key];
     if (want && want !== M.EMPTY) preset[f.key] = want;
     else if (f.def) preset[f.key] = f.def;
   }
@@ -1123,7 +1255,7 @@ function render() {
   const t = location.hash.slice(1);
   state.tab = t === 'settings' || M.KINDS[t] ? t : 'clothes';
   renderNav();
-  if (state.tab === 'settings') renderSettings(); else if (state.tab === 'proxy') renderProxy(); else renderKind(state.tab);
+  if (state.tab === 'settings') renderSettings(); else if (state.tab === 'proxy') renderProxy(); else if (state.tab === 'clothes') renderClothes(); else renderKind(state.tab);
   applyIcons(page);
   initSegmented(page);
 }
@@ -1142,6 +1274,13 @@ const ACTIONS = {
   'toggle-person': (el) => {
     const f = (state.filters.proxy ||= {});
     f.__open = { ...f.__open, [el.dataset.who]: el.getAttribute('aria-expanded') !== 'true' };
+    saveFilters();
+    render();
+  },
+  'kind-filter': (el) => { (state.filters[el.dataset.kind] ||= {})[el.dataset.key] = el.dataset.v; saveFilters(); render(); },
+  'toggle-part': (el) => {
+    const f = (state.filters.clothes ||= {});
+    f.__open = { ...f.__open, [el.dataset.part]: el.getAttribute('aria-expanded') !== 'true' };
     saveFilters();
     render();
   },

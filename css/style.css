@@ -718,7 +718,7 @@ a.link-cell .i { flex-shrink: 0; }
 /* 色塊上蓋一個透明的原生下拉：點色塊就跳選單 */
 
 /* ---- 代購頁：日系暖色、像購物清單，不像後台 */
-.proxy-page { max-width: 1040px; margin: 0 auto; }
+.kind-page { max-width: 1040px; margin: 0 auto; }
 .trip-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 4px 2px 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border-color); }
 .crumb { color: var(--text-secondary); font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
 .trip-head h1 { font-size: 1.9rem; color: var(--text-heading); letter-spacing: 0.02em; line-height: 1.3; margin: 2px 0; }
@@ -843,3 +843,28 @@ a.link-cell .i { flex-shrink: 0; }
   .pt-status { grid-area: status; }
   .narrow-label { display: inline; }
 }
+
+/* ---- 衣服頁：顏色方塊、色系分布、第二排篩選 */
+.pt-head.has-tile, .pt-row.has-tile { grid-template-columns: 40px minmax(0, 1fr) 4.5em 6.5em 7.5em; }
+.tile { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--bg-input); color: var(--text-secondary); font-weight: 700; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06); }
+.tile-light { box-shadow: inset 0 0 0 1px var(--border-light); }
+.swatch-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.swatch-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 0.82rem; cursor: pointer; }
+.swatch-btn i { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1); }
+.swatch-btn:hover { border-color: var(--accent); }
+.swatch-btn.active { border-color: #7A5C45; color: var(--text-heading); font-weight: 600; }
+.pills-sub { margin: -4px 0 14px; }
+.pills-sub .pill { padding: 3px 12px; font-size: 0.85rem; }
+button.kpi { font: inherit; text-align: left; cursor: pointer; }
+button.kpi:hover { filter: brightness(0.98); }
+.pc-gap { height: 6px; }
+.link-btn { border: none; background: none; padding: 0; color: var(--accent-hover); font: inherit; cursor: pointer; text-decoration: underline; }
+@media (max-width: 599px) {
+  .pt-row.has-tile { grid-template-columns: 40px 1fr auto auto; grid-template-areas: 'tile name name name' 'tile qty price status'; }
+  .pt-row.has-tile .tile { grid-area: tile; align-self: start; }
+}
+/* 有方塊的表頭：第 1 欄是方塊，往後挪一欄對齊 */
+.pt-head.has-tile span:nth-child(2) { text-align: left; }
+.pt-head.has-tile span:nth-child(3) { text-align: center; }
+.pt-head.has-tile span:nth-child(4) { text-align: right; }
+.pt-head.has-tile span:nth-child(5) { text-align: center; }
