@@ -47,7 +47,7 @@ export const KINDS = {
     name: '書', icon: 'book', group_by: 'f1',
     fields: [
       f('f1', '作者／社團', 'text', { list: true }),
-      f('f2', '語言', 'choice', { options: ['中文', '日文', '英文'], filter: true, list: true }),
+      f('f2', '語言', 'choice', { options: ['中文', '日文', '英文'], filter: true, list: true, tones: { 中文: 'ok', 日文: 'warn', 英文: 'info' } }),
       f('f3', '形式', 'choice', { options: ['實體', '電子'], filter: true, list: true, fixed: true }),
       f('f4', '購買管道', 'choice', { options: [], filter: true }),
       f('f5', '價格', 'money'),

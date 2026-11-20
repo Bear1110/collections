@@ -573,10 +573,6 @@ details.guide > div { margin-top: 6px; line-height: 1.7; }
   .chart-type-toggle::-webkit-scrollbar { display: none; }
   .chart-type-btn { flex-shrink: 0; white-space: nowrap; }
 
-  /* 手機上只留圖示的按鈕（文字包在 .wide-only 裡）：跟列上的圖示按鈕一樣大小 */
-  .wide-only { display: none; }
-  .header-actions .btn:has(.wide-only) { padding: 0.35rem 0.5rem; }
-
   /* 彈出視窗：全螢幕，標題列固定在上（✕｜標題｜儲存），按鈕固定在下 */
   dialog.modal-overlay { align-items: stretch; }
   .modal {
@@ -642,27 +638,9 @@ details.guide > div { margin-top: 6px; line-height: 1.7; }
    收藏整理
    ============================================================ */
 
-/* 篩選列 */
-.filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; min-width: 0; }
-.filter-row .seg-select { min-width: 0; }
-.filter-label { flex-shrink: 0; width: 3.5em; color: var(--text-secondary); font-size: 0.82rem; }
-details.filter-box { margin-bottom: 12px; }
-details.filter-box > summary { cursor: pointer; color: var(--accent); font-size: 0.88rem; margin-bottom: 10px; width: max-content; }
-
 /* 物品列表 */
-tr.group-row td, .ic-group {
-  background: var(--bg-secondary); color: var(--text-heading); font-weight: 600; font-size: 0.85rem;
-  position: sticky; left: 0;
-}
-tr.group-row small, .ic-group small { margin-left: 8px; color: var(--text-muted); font-weight: 400; }
-tr.click-row { cursor: pointer; }
-tr.click-row:hover td { background: var(--bg-card-hover); }
 .item-note { margin-top: 4px; padding: 2px 0 2px 8px; border-left: 2px solid var(--yellow); color: var(--text-primary); font-size: 0.82rem; line-height: 1.5; max-width: 32em; overflow-wrap: anywhere; }
 .note-tag { color: var(--accent); }
-.row-note { color: var(--text-muted); font-size: 0.78rem; margin-top: 2px; max-width: 28em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-a.link-cell { display: inline-flex; align-items: center; gap: 4px; max-width: 14em; color: var(--accent); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-a.link-cell:hover { text-decoration: underline; }
-a.link-cell .i { flex-shrink: 0; }
 
 /* 物品表單 */
 .money-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -687,23 +665,10 @@ a.link-cell .i { flex-shrink: 0; }
 
 /* 選資料表 */
 .sheet-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
-.sheet-choice, .item-card { padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); cursor: pointer; }
-.sheet-choice:hover, .item-card:hover, .item-card:active { border-color: var(--accent); background: var(--bg-card-hover); }
+.sheet-choice { padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); cursor: pointer; }
+.sheet-choice:hover { border-color: var(--accent); background: var(--bg-card-hover); }
 .sheet-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font: inherit; }
 .sheet-choice .text-muted { font-size: 0.8rem; }
-
-/* 手機的卡片列表（itemCards）：外框和選資料表的按鈕同一個樣子、分組標題和表格的分組列同一個樣子 */
-.ic-group { display: flex; align-items: baseline; gap: 8px; padding: 12px 4px 6px; font-size: 0.9rem; }
-.ic-group small { font-size: 0.78rem; }
-.item-card { margin: 0 0 8px; }
-.ic-top { display: flex; align-items: baseline; gap: 10px; }
-.ic-top b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.ic-money { flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.ic-money .row-note { margin-top: 0; }
-.ic-meta { margin-top: 4px; color: var(--text-secondary); font-size: 0.82rem; line-height: 1.5; }
-.ic-dot { margin: 0 6px; color: var(--text-muted); }
-.ic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
-.ic-actions a.link-cell { max-width: 100%; }
 
 /* ============================================================
    代購：這一趟 → 朋友的購物清單 → 每個朋友的卡片
@@ -845,8 +810,9 @@ a.link-cell .i { flex-shrink: 0; }
 }
 
 /* ---- 衣服頁：顏色方塊、色系分布、第二排篩選 */
+:where(.tile) { background: var(--bg-input); color: var(--text-secondary); }
 .pt-head.has-tile, .pt-row.has-tile { grid-template-columns: 40px minmax(0, 1fr) 4.5em 6.5em 7.5em; }
-.tile { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--bg-input); color: var(--text-secondary); font-weight: 700; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06); }
+.tile { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; font-weight: 700; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06); }
 .tile-light { box-shadow: inset 0 0 0 1px var(--border-light); }
 .swatch-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .swatch-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 0.82rem; cursor: pointer; }
@@ -868,3 +834,14 @@ button.kpi:hover { filter: brightness(0.98); }
 .pt-head.has-tile span:nth-child(3) { text-align: center; }
 .pt-head.has-tile span:nth-child(4) { text-align: right; }
 .pt-head.has-tile span:nth-child(5) { text-align: center; }
+
+/* ---- 書頁：書背方塊（依語言上色）、大搜尋框 */
+.book-tile { width: 32px; height: 44px; border-radius: 4px 8px 8px 4px; font-size: 0.95rem; box-shadow: inset 3px 0 0 rgba(0, 0, 0, 0.08); }
+.book-tile.tone-none { background: var(--bg-input); color: var(--text-secondary); }
+.book-search { margin-bottom: 14px; }
+.book-search .search-input { max-width: none; width: 100%; margin: 0; padding: 12px 16px; font-size: 1.05rem; border-radius: 14px; background: var(--bg-card); }
+.kpi-info { background: var(--info-bg); border-color: transparent; }
+.kpi-info > span, .kpi-info b { color: var(--info); }
+.s-info { background: #B9A58E; }
+.t-info { color: var(--info); }
+.pt-head.has-tile span:nth-child(5):empty { visibility: hidden; }

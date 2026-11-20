@@ -47,45 +47,69 @@ function renderNav() {
   for (const a of nav.querySelectorAll('.tab-btn')) a.classList.toggle('active', a.dataset.tab === state.tab);
 }
 
-// ---------------------------------------------------------------- 種類頁（物品清單）
-
-function cellHTML(f, v, d = {}) {
-  if (v == null || v === '') return '';
-  if (f.type === 'choice' && f.tones) return badge(f, v);
-  if (f.type === 'url') {
-    const l = M.linkOf(v);
-    return `<a class="link-cell" href="${esc(l.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(v))}">${l.search ? icon('search') : icon('external')}${esc(l.text)}</a>`;
-  }
-  if (f.type === 'money') {
-    const twd = M.moneyTWD(v);
-    const m = M.normMoney(v);
-    const unit = m?.c === 'TWD' ? `NT$${fmt(m.a, 0)}`
-      : twd == null ? `<span class="tag tag-warn" title="沒有匯率，算不出台幣">${esc(M.fmtMoney(v))}</span>` : `<span title="${esc(M.fmtMoney(v))}">NT$${fmt(twd, 0)}</span>`;
-    const q = M.qtyOf(f, d);
-    if (q === 1) return unit;
-    const line = M.lineTWD(f, d);
-    return `${unit}<div class="row-note">×${fmt(q)}${line == null ? '' : ` = NT$${fmt(line, 0)}`}</div>`;
-  }
-  if (f.type === 'tags') return M.normTags(v).map((t) => `<span class="tag">${esc(t)}</span>`).join(' ');
-  return esc(M.textOf(f, v));
-}
+// ---------------------------------------------------------------- 三頁共用的小零件
 
 /** 有顏色的單選值（代購的待買／已買／缺貨、衣服的想丟／已丟） */
 const badge = (f, v, extra = '') => `<span class="badge tone-${f.tones?.[v] ?? 'none'}">${esc(v || '未填')}${extra}</span>`;
 
-function kindView(kind) {
-  const k = M.KINDS[kind];
-  const fields = M.fieldsOf(kind);
-  const filters = (state.filters[kind] ||= {});
-  const q = state.search[kind] ?? '';
-  const pool = itemsOf(kind);
-  const { items: visible, hidden } = M.hideByDefault(pool, fields, filters); // 衣服的「已丟」平常不顯示
-  const shown = M.filterItems(visible, fields, { filters, q }).sort(byName);
-  const group = fields.find((f) => f.key === k.group_by);
-  const cols = fields.filter((f) => f.list && f !== group);
-  const money = fields.find((f) => f.type === 'money');
-  const foreign = M.foreignCurrencies(shown, fields); // 顯示中的物品用到的外幣（「匯率」按鈕、整批改匯率）
-  return { foreign, kind, k, fields, filters, q, all: visible, shown, group, cols, money, hidden, pool };
+/** 名字的第一個字（頭像、書背）：跳過開頭的空白和括號 */
+const initial = (str, fallback = '?') => [...String(str ?? '').replace(/^[\s(（\[【]+/, '')][0] ?? fallback;
+
+/** 網址的小圖示連結（真的網址 ↗、其他文字 → Google 搜尋） */
+function linkIcon(url, cls = 'pt-link') {
+  if (!url) return '';
+  const l = M.linkOf(url);
+  return `<a class="${cls}" href="${esc(l.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(url))}" aria-label="開啟網址">${svgIcon(l.search ? 'search' : 'external')}</a>`;
+}
+
+/** 篩選膠囊：data-action="kind-filter" 把值存進 state.filters[kind][key] */
+const kindPill = (kind, f, key, v, label, n) => `<button type="button" class="pill${(f[key] ?? '') === v ? ' active' : ''}" data-action="kind-filter" data-kind="${kind}" data-key="${key}" data-v="${esc(v)}">${esc(label)}${n != null ? ` <span>${n}</span>` : ''}</button>`;
+
+/** 頁首：小標、大標題、說明（可以放 HTML）、⋯ 選單、新增按鈕 */
+function pageHead({ kind, crumb, title, sub, newLabel, foreign, menu = '' }) {
+  return `<header class="trip-head">
+      <div>
+        <div class="crumb">${crumb}</div>
+        <h1>${esc(title)}</h1>
+        <p class="trip-sub">${sub}</p>
+      </div>
+      <div class="trip-actions">
+        <details class="more-menu"><summary class="btn btn-outline btn-sm btn-icon" aria-label="更多" title="更多">⋯</summary>
+          <div class="more-list">
+            ${foreign ? `<button type="button" data-action="set-rate" data-kind="${kind}">${icon('coins')}整批改匯率</button>` : ''}
+            <button type="button" data-action="export-csv" data-kind="${kind}">${icon('download')}下載 CSV</button>
+            ${menu}
+          </div></details>
+        ${newLabel ? `<button type="button" class="btn btn-primary" data-action="new-item" data-kind="${kind}">${icon('plus')}${esc(newLabel)}</button>` : ''}
+      </div>
+    </header>`;
+}
+
+/** 可收合的卡片（朋友、部位、作者）：標題列點了收合（data-action="toggle-open"，記在 state.filters[kind].__open） */
+function groupCard({ kind, key, name, meta, amountLabel, amount, opened, extra = '', table = '', cls = '' }) {
+  return `<section class="pc${cls}${opened ? '' : ' is-collapsed'}">
+    <div class="pc-head" data-action="toggle-open" data-kind="${kind}" data-key="${esc(key)}" role="button" tabindex="0" aria-expanded="${opened}">
+      <span class="avatar">${esc(initial(name))}</span>
+      <div class="pc-name"><b>${esc(name)}</b><span>${meta}</span></div>
+      <div class="pc-amount"><span>${amountLabel}</span><b>${amount}</b></div>
+      <span class="pc-chev">${svgIcon('chevron-right')}</span>
+    </div>
+    ${extra}
+    ${opened ? table : extra ? '' : '<div class="pc-gap"></div>'}
+  </section>`;
+}
+
+/** 搜尋框打字時只重畫清單（不動搜尋框，游標、輸入法都不受影響）；清單上的狀態膠囊改了就存 */
+function wireList(kind, listHTML) {
+  $('#search').oninput = (e) => {
+    state.search[kind] = e.target.value;
+    $('#kind-list').innerHTML = listHTML();
+    applyIcons($('#kind-list'));
+  };
+  $('#kind-list').onchange = (e) => {
+    const sel = e.target.closest('select[data-quick]');
+    if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
+  };
 }
 
 /** 備註：常常是重要的補充（想丟的原因、要什麼顏色、預算），所以用看得到的顏色；#標籤（批次）另外標出來 */
@@ -99,129 +123,6 @@ function noteHTML(note, { dropTags = false } = {}) {
     last = m.index + m[0].length;
   }
   return `<div class="item-note">${html}${esc(note.slice(last))}</div>`;
-}
-
-/** 手機（< 600px）用卡片、電腦用表格：只畫用得到的那一種，螢幕寬度跨過去時重畫（見 init） */
-const PHONE = matchMedia('(max-width: 599px)');
-
-/** 表格和卡片共用：空白訊息、分組（篩了分組欄位就不分）、分組標題的件數和金額 */
-function listHTML(v, item, groupHead, empty) {
-  const { shown, group, all, filters, fields, money } = v;
-  if (!shown.length) return empty(!all.length ? '還沒有東西。按「新增」開始。' : '沒有符合的。換個關鍵字或清除篩選。');
-  if (!group || filters[group.key]) return shown.map(item).join('');
-  return M.groupItems(shown, group).map((g) =>
-    groupHead(`${esc(g.value)}<small>${g.items.length} 件${groupMoney(g.items, money, fields)}</small>`) + g.items.map(item).join('')).join('');
-}
-
-function itemRows(v) {
-  const { cols } = v;
-  const row = (i) => {
-    const d = M.dataOf(i);
-    return `<tr class="click-row" data-action="edit-item" data-id="${i.id}">
-      <td><b>${esc(i.name)}</b>${noteHTML(i.note)}</td>
-      ${cols.map((f) => `<td class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${cellHTML(f, d[f.key], d)}</td>`).join('')}
-    </tr>`;
-  };
-  return `<div class="table-wrap"><table>
-    <thead><tr><th>名稱</th>${cols.map((f) => `<th class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${esc(f.label)}</th>`).join('')}</tr></thead>
-    <tbody>${listHTML(v, row, (h) => `<tr class="group-row"><td colspan="${cols.length + 1}">${h}</td></tr>`,
-      (t) => `<tr><td colspan="${cols.length + 1}" class="empty-state">${t}</td></tr>`)}</tbody></table></div>`;
-}
-
-/**
- * 手機的卡片：第一行名稱＋金額，第二行其他欄位用「·」串起來，下面備註，最後一行是直接改的單選和網址。
- * 數量不另外寫（金額下面已經有 ×數量＝小計）；欄位的 quietValues（衣服的「在穿」）不寫。
- */
-function itemCards(v) {
-  const { cols, fields } = v;
-  const qtyKeys = new Set(fields.filter((f) => f.type === 'money' && f.qty).map((f) => f.qty));
-  const moneyCols = cols.filter((f) => f.type === 'money');
-  const actionCols = cols.filter((f) => f.type === 'url');
-  const metaCols = cols.filter((f) => f.type !== 'money' && !actionCols.includes(f) && !qtyKeys.has(f.key));
-  const card = (i) => {
-    const d = M.dataOf(i);
-    const meta = metaCols.filter((f) => !(f.quietValues ?? []).includes(d[f.key]))
-      .map((f) => { const c = cellHTML(f, d[f.key], d); return c && f.type === 'number' ? `${esc(f.label)} ${c}` : c; }).filter(Boolean);
-    const actions = actionCols.map((f) => cellHTML(f, d[f.key], d)).join('');
-    return `<div class="item-card" data-action="edit-item" data-id="${i.id}">
-      <div class="ic-top"><b>${esc(i.name)}</b>${moneyCols.map((f) => `<span class="ic-money">${cellHTML(f, d[f.key], d)}</span>`).join('')}</div>
-      ${meta.length ? `<div class="ic-meta">${meta.join('<span class="ic-dot">·</span>')}</div>` : ''}
-      ${noteHTML(i.note)}
-      ${actions ? `<div class="ic-actions">${actions}</div>` : ''}
-    </div>`;
-  };
-  return listHTML(v, card, (h) => `<div class="ic-group">${h}</div>`, (t) => `<p class="empty-state">${t}</p>`);
-}
-
-const listBody = (v) => (PHONE.matches ? itemCards(v) : itemRows(v));
-
-/** 分組標題的金額合計（不算錢的、沒匯率的不算） */
-function groupMoney(items, money, fields) {
-  if (!money) return '';
-  const s = M.sumTWD(items, money, fields);
-  return s.total ? ` · NT$${fmt(s.total, 0)}` : '';
-}
-
-function summaryText(v) {
-  const { shown, all, money, fields } = v;
-  const parts = [shown.length === all.length ? `共 ${all.length} 件` : `顯示 ${shown.length}／${all.length} 件`];
-  if (money) {
-    const s = M.sumTWD(shown, money, fields);
-    if (s.total) parts.push(`合計 NT$${fmt(s.total, 0)}`);
-    if (s.missing) parts.push(`${s.missing} 件外幣沒填匯率，沒算進去`);
-  }
-  for (const h of v.hidden) parts.push(`${h.field.hideValues.join('、')}的 ${h.n} 件沒顯示（篩選「${h.field.label}」可以看）`);
-  return parts.join(' · ');
-}
-
-/** 篩選列：單選欄位，選項後面附件數 */
-function filterSelect(f, all, current) {
-  const counts = M.countBy(all, f);
-  const opts = counts.map(({ value, n }) =>
-    `<option value="${esc(value)}" ${value === current ? 'selected' : ''}>${esc(value)} ${n}</option>`).join('');
-  return `<div class="filter-row"><span class="filter-label">${esc(f.label)}</span>
-    <select data-filter="${f.key}" data-segmented="6" aria-label="${esc(f.label)}"><option value="">全部</option>${opts}</select></div>`;
-}
-
-function renderKind(kind) {
-  const v = kindView(kind);
-  const filterFields = v.fields.filter((f) => f.filter && (f.type === 'choice' || f.type === 'tags'));
-  const main = filterFields.find((f) => f === v.group) ?? null;
-  const rest = filterFields.filter((f) => f !== main);
-  const activeRest = rest.filter((f) => v.filters[f.key]).length;
-  page.innerHTML = `
-    <section class="card">
-      <div class="card-header">
-        <h3>${icon(v.k.icon)}${esc(v.k.name)}<small class="card-meta">${v.all.length} 件</small></h3>
-        <div class="header-actions">
-          ${v.foreign.length ? `<button type="button" class="btn btn-outline btn-sm" data-action="set-rate" data-kind="${kind}" title="整批改匯率" aria-label="整批改匯率">${icon('coins')}<span class="wide-only">匯率</span></button>` : ''}
-          <button type="button" class="btn btn-outline btn-sm" data-action="export-csv" data-kind="${kind}" title="下載 CSV" aria-label="下載 CSV">${icon('download')}<span class="wide-only">CSV</span></button>
-          <button type="button" class="btn btn-primary btn-sm" data-action="new-item" data-kind="${kind}">${icon('plus')}新增</button>
-        </div>
-      </div>
-      <p class="form-hint card-hint" id="summary">${esc(summaryText(v))}</p>
-      ${main ? filterSelect(main, main.hideValues ? v.pool : v.all, v.filters[main.key] ?? '') : ''}
-      ${rest.length ? `<details class="filter-box" ${activeRest ? 'open' : ''}><summary>${icon('filter')}篩選${activeRest ? `（${activeRest}）` : ''}</summary>
-        ${rest.map((f) => filterSelect(f, f.hideValues ? v.pool : v.all, v.filters[f.key] ?? '')).join('')}
-        ${activeRest ? `<button type="button" class="btn btn-outline btn-sm" data-action="clear-filters" data-kind="${kind}">清除篩選</button>` : ''}</details>` : ''}
-      <input class="search-input" id="search" type="search" placeholder="搜尋名稱、欄位、備註…" value="${esc(v.q)}">
-      <div id="item-list">${listBody(v)}</div>
-    </section>`;
-  // 打字時只重畫表格內容，搜尋框不動（游標、輸入法都不受影響）
-  $('#search').oninput = (e) => {
-    state.search[kind] = e.target.value;
-    const view = kindView(kind);
-    $('#item-list').innerHTML = listBody(view);
-    $('#summary').textContent = summaryText(view);
-    applyIcons($('#item-list'));
-  };
-  for (const sel of page.querySelectorAll('[data-filter]')) {
-    sel.onchange = () => {
-      if (sel.value) v.filters[sel.dataset.filter] = sel.value; else delete v.filters[sel.dataset.filter];
-      saveFilters();
-      render();
-    };
-  }
 }
 
 // ================================================================ 代購
@@ -295,10 +196,9 @@ function proxyItemRow(i, dropTags) {
   const d = M.dataOf(i);
   const st = M.statusOf(i);
   const m = M.normMoney(d.f8);
-  const link = d.f10 ? M.linkOf(d.f10) : null;
   const sub = [d.f5, d.f6].filter(Boolean);
   return `<div class="pt-row row-${P_STATUS.tones[st] ?? 'none'}" data-action="edit-item" data-id="${i.id}">
-    <div class="pt-name"><b>${esc(i.name)}</b>${link ? ` <a class="pt-link" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(d.f10))}" aria-label="開啟商品網址">${svgIcon(link.search ? 'search' : 'external')}</a>` : ''}
+    <div class="pt-name"><b>${esc(i.name)}</b> ${linkIcon(d.f10)}
       ${sub.length ? `<div class="pt-sub">${sub.map(esc).join(' · ')}</div>` : ''}${noteHTML(i.note, { dropTags })}</div>
     <div class="pt-qty"><span class="narrow-label">×</span>${fmt(M.qtyOf(P_PRICE, d))}</div>
     <div class="pt-price">${m ? `${CUR_SIGN[m.c]}${fmt(m.a)}` : '<span class="text-muted">—</span>'}</div>
@@ -308,27 +208,22 @@ function proxyItemRow(i, dropTags) {
 
 /** 一個朋友的卡片 */
 function personCard(g, rows, opened, dropTags) {
-  const key = g.who.toLowerCase();
   const pct = g.need ? Math.round((g.bought / g.need) * 100) : 0;
   const pending = g.toBuy && g.owed !== g.total ? `<small>全部買到約 ${moneyText(g.byCur, g.total)}</small>` : moneyHint(g.owedCur, g.owed);
-  return `<section class="pc${g.paid ? ' is-paid' : ''}${opened ? '' : ' is-collapsed'}">
-    <div class="pc-head" data-action="toggle-person" data-who="${esc(key)}" role="button" tabindex="0" aria-expanded="${opened}">
-      <span class="avatar">${esc([...g.who][0] ?? '?')}</span>
-      <div class="pc-name"><b>${esc(g.who)}</b><span>${g.n} 項商品 · 已買 ${g.bought} 項</span></div>
-      <div class="pc-amount"><span>${g.paid ? '已收金額' : '目前應收'}</span><b>${moneyText(g.owedCur, g.owed, baseCur([g]))}</b>${pending}</div>
-      <span class="pc-chev">${svgIcon('chevron-right')}</span>
-    </div>
-    <div class="pc-bar"><i style="width:${pct}%"></i></div>
+  return groupCard({
+    kind: 'proxy', key: g.who.toLowerCase(), name: g.who, opened, cls: g.paid ? ' is-paid' : '',
+    meta: `${g.n} 項商品 · 已買 ${g.bought} 項`,
+    amountLabel: g.paid ? '已收金額' : '目前應收', amount: `${moneyText(g.owedCur, g.owed, baseCur([g]))}</b>${pending}<b hidden>`,
+    extra: `<div class="pc-bar"><i style="width:${pct}%"></i></div>
     <div class="pc-foot">
       <span class="legend"><em class="t-ok">已買 ${g.bought}</em><em class="t-warn">待買 ${g.toBuy}</em><em class="t-bad">缺貨 ${g.oos}</em></span>
       ${g.paid || g.need ? `<button type="button" class="${g.paid ? 'pay-done' : 'btn-soft'}" data-action="toggle-paid" data-keys="${esc(g.keys.join('\n'))}" data-who="${esc(g.who)}"${g.paid ? ' title="按一下改回未收款"' : ''}>${g.paid ? '✓ 已收款' : '標記已收款'}</button>` : ''}
-    </div>
-    ${opened ? `<div class="pt"><div class="pt-head"><span>商品 / 規格</span><span>數量</span><span>單價</span><span>採購狀態</span></div>
-      ${rows.map((i) => proxyItemRow(i, dropTags)).join('')}</div>` : ''}
-  </section>`;
+    </div>`,
+    table: `<div class="pt"><div class="pt-head"><span>商品 / 規格</span><span>數量</span><span>單價</span><span>採購狀態</span></div>
+      ${rows.map((i) => proxyItemRow(i, dropTags)).join('')}</div>`,
+  });
 }
 
-/** 朋友的購物清單（會跟著篩選、搜尋重畫） */
 /** 狀態篩選：待購買／已購買（含已交貨）／缺貨；未收款篩的是人，不篩商品 */
 const STATUS_FILTER = { 待買: (s) => s === '待買', 已買: (s) => M.BOUGHT.includes(s), 缺貨: (s) => s === '缺貨' };
 
@@ -362,26 +257,15 @@ function renderProxy() {
   const f = sc.filters.__status ?? '';
   const pct = s2.need ? Math.round((s2.bought / s2.need) * 100) : 0;
   const w = (n) => (s2.n ? (n / s2.n) * 100 : 0);
-  const pill = (v, label, n) => `<button type="button" class="pill${f === v ? ' active' : ''}" data-action="proxy-filter" data-v="${v}">${label}${n != null ? ` <span>${n}</span>` : ''}</button>`;
+  const pill = (v, label, n) => kindPill('proxy', sc.filters, '__status', v, label, n);
   const isTag = sc.trip && sc.trip !== M.NO_BATCH && sc.trip !== DONE_LOOSE;
   page.innerHTML = `<div class="kind-page">
-    <header class="trip-head">
-      <div>
-        <div class="crumb">我的代購清單${sc.isClosed ? ' · <span class="badge tone-none">已結清</span>' : ''}</div>
-        <h1>${esc(sc.title)}</h1>
-        <p class="trip-sub">幫朋友帶點喜歡的東西回家。${tripSelect(sc)}</p>
-      </div>
-      <div class="trip-actions">
-        <details class="more-menu"><summary class="btn btn-outline btn-sm btn-icon" aria-label="更多" title="更多">⋯</summary>
-          <div class="more-list">
-            ${foreign.length ? `<button type="button" data-action="set-rate" data-kind="proxy">${icon('coins')}整批改匯率</button>` : ''}
-            <button type="button" data-action="export-csv" data-kind="proxy">${icon('download')}下載 CSV</button>
-            ${isTag && !sc.isClosed ? `<button type="button" data-action="close-batch" data-tag="${esc(sc.trip)}">${icon('check')}結清這一趟</button>` : ''}
-            ${isTag && sc.isClosed ? `<button type="button" data-action="reopen-batch" data-tag="${esc(sc.trip)}">${icon('refresh')}重新打開這一趟</button>` : ''}
-          </div></details>
-        ${sc.isClosed ? '' : `<button type="button" class="btn btn-primary" data-action="new-item" data-kind="proxy">${icon('plus')}新增商品</button>`}
-      </div>
-    </header>
+    ${pageHead({
+      kind: 'proxy', crumb: `我的代購清單${sc.isClosed ? ' · <span class="badge tone-none">已結清</span>' : ''}`, title: sc.title,
+      sub: `幫朋友帶點喜歡的東西回家。${tripSelect(sc)}`, newLabel: sc.isClosed ? '' : '新增商品', foreign: foreign.length,
+      menu: `${isTag && !sc.isClosed ? `<button type="button" data-action="close-batch" data-tag="${esc(sc.trip)}">${icon('check')}結清這一趟</button>` : ''}
+            ${isTag && sc.isClosed ? `<button type="button" data-action="reopen-batch" data-tag="${esc(sc.trip)}">${icon('refresh')}重新打開這一趟</button>` : ''}`,
+    })}
     ${sc.items.length ? `
     <div class="kpis">
       <div class="kpi"><span>已採購金額 ${svgIcon('wallet')}</span><b>${moneyText(s2.boughtCur, s2.boughtTWD, base)}</b>${moneyHint(s2.boughtCur, s2.boughtTWD)}</div>
@@ -400,19 +284,11 @@ function renderProxy() {
       <div class="pills">${pill('', '全部', s2.n)}${pill('待買', '待購買', s2.toBuy)}${pill('已買', '已購買', s2.bought)}${pill('缺貨', '缺貨', s2.oos)}${pill('unpaid', '未收款', s2.unpaid)}</div>
       <input class="search-input" id="search" type="search" placeholder="搜尋商品、規格、備註…" value="${esc(state.search.proxy ?? '')}">
     </div>
-    <div id="proxy-list">${proxyList(sc, groups)}</div>
+    <div id="kind-list">${proxyList(sc, groups)}</div>
   </div>`;
-  $('#search').oninput = (e) => {
-    state.search.proxy = e.target.value;
-    $('#proxy-list').innerHTML = proxyList(sc, groups); // 打字不會改資料：用這次畫面算好的
-    applyIcons($('#proxy-list'));
-  };
+  wireList('proxy', () => proxyList(sc, groups)); // 打字不會改資料：用這次畫面算好的
   const trip = $('#trip-select');
   if (trip) trip.onchange = () => { sc.filters.__batch = trip.value; saveFilters(); render(); };
-  $('#proxy-list').onchange = (e) => {
-    const sel = e.target.closest('select[data-quick]');
-    if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
-  };
 }
 
 // ================================================================ 衣服
@@ -440,10 +316,9 @@ function clothesRow(i) {
   const st = clothesStatus(i);
   const m = M.normMoney(d.f7);
   const sub = [d.f3, d.f2, d.f5].filter(Boolean);
-  const link = d.f10 ? M.linkOf(d.f10) : null;
   return `<div class="pt-row has-tile row-${C_STATUS.tones[st] ?? 'none'}" data-action="edit-item" data-id="${i.id}">
-    <span class="tile${d.f6 === '白' ? ' tile-light' : ''}" style="${swatchStyle(d.f6)}" title="${esc(d.f6 || '沒填色系')}">${d.f6 ? '' : esc([...(d.f5 || i.name)][0] ?? '')}</span>
-    <div class="pt-name"><b>${esc(i.name)}</b>${link ? ` <a class="pt-link" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(d.f10))}" aria-label="開啟網址">${svgIcon(link.search ? 'search' : 'external')}</a>` : ''}
+    <span class="tile${d.f6 === '白' ? ' tile-light' : ''}" style="${swatchStyle(d.f6)}" title="${esc(d.f6 || '沒填色系')}">${d.f6 ? '' : esc(initial(d.f5 || i.name, ''))}</span>
+    <div class="pt-name"><b>${esc(i.name)}</b> ${linkIcon(d.f10)}
       ${sub.length ? `<div class="pt-sub">${sub.map(esc).join(' · ')}</div>` : ''}${noteHTML(i.note)}</div>
     <div class="pt-qty">${esc(d.f4 ?? '')}</div>
     <div class="pt-price">${m ? `${CUR_SIGN[m.c]}${fmt(m.a)}` : '<span class="text-muted">—</span>'}</div>
@@ -451,37 +326,35 @@ function clothesRow(i) {
   </div>`;
 }
 
-/** 一個部位的卡片（短袖、長袖…）：件數、想丟幾件、花費；可以收合 */
-function partCard(part, rows, all, opened) {
-  const toss = all.filter((i) => clothesStatus(i) === '想丟').length;
-  const spent = M.sumTWD(all, C_PRICE).total;
-  return `<section class="pc${opened ? '' : ' is-collapsed'}">
-    <div class="pc-head" data-action="toggle-part" data-part="${esc(part)}" role="button" tabindex="0" aria-expanded="${opened}">
-      <span class="avatar">${esc([...part][0] ?? '?')}</span>
-      <div class="pc-name"><b>${esc(part)}</b><span>${all.length} 件${toss ? ` · 想丟 ${toss} 件` : ''}</span></div>
-      <div class="pc-amount"><span>花費</span><b>NT$${fmt(spent, 0)}</b></div>
-      <span class="pc-chev">${svgIcon('chevron-right')}</span>
-    </div>
-    ${opened ? `<div class="pt"><div class="pt-head has-tile"><span></span><span>衣服</span><span>尺寸</span><span>價格</span><span>狀態</span></div>
-      ${rows.map(clothesRow).join('')}</div>` : '<div class="pc-gap"></div>'}
-  </section>`;
+/** 衣服依部位分好（照部位的選項順序，沒填的放最後），每個部位的件數、想丟、花費先算好：打字搜尋時不用重算 */
+function clothesParts(all) {
+  const by = new Map([...C_PART.options, M.EMPTY].map((p) => [p, []]));
+  for (const i of all) (by.get(M.dataOf(i).f1 || M.EMPTY) ?? by.get(M.EMPTY)).push(i);
+  return [...by].map(([part, items]) => {
+    const kept = items.filter((i) => clothesStatus(i) !== '已丟');
+    return { part, items, kept: kept.length, toss: kept.filter((i) => clothesStatus(i) === '想丟').length, spent: M.sumTWD(kept, C_PRICE).total };
+  });
 }
 
-function clothesList(all, f) {
+function clothesList(parts, f, total) {
   const q = state.search.clothes ?? '';
   const fields = M.fieldsOf('clothes');
   const byStatus = C_STATUS_FILTER[f.__status ?? ''] ?? C_STATUS_FILTER[''];
   const ok = (i) => byStatus(clothesStatus(i)) && (!f.__color || M.dataOf(i).f6 === f.__color) && M.itemMatches(i, fields, q);
-  const parts = f.__part ? [f.__part] : [...C_PART.options, M.EMPTY];
   const opens = f.__open ?? {};
-  const filtering = !!(q || f.__color || f.__status);
-  const cards = parts.map((part) => {
-    const inPart = all.filter((i) => (M.dataOf(i).f1 || M.EMPTY) === part);
-    const rows = inPart.filter(ok).sort((a, b) => (clothesStatus(a) === '想丟') - (clothesStatus(b) === '想丟') || byName(a, b));
+  const filtering = !!(q || f.__color || f.__status || f.__part);
+  const cards = parts.filter((p) => !f.__part || p.part === f.__part).map((p) => {
+    const rows = p.items.filter(ok).map((i) => [clothesStatus(i) === '想丟', i]) // 想丟的排最後
+      .sort((a, b) => a[0] - b[0] || byName(a[1], b[1])).map(([, i]) => i);
     if (!rows.length) return '';
-    return partCard(part, rows, inPart.filter((i) => clothesStatus(i) !== '已丟'), filtering || f.__part ? true : opens[part] ?? true);
+    return groupCard({
+      kind: 'clothes', key: p.part, name: p.part, opened: filtering || (opens[p.part] ?? true),
+      meta: `${p.kept} 件${p.toss ? ` · 想丟 ${p.toss} 件` : ''}`, amountLabel: '花費', amount: `NT$${fmt(p.spent, 0)}`,
+      table: `<div class="pt"><div class="pt-head has-tile"><span></span><span>衣服</span><span>尺寸</span><span>價格</span><span>狀態</span></div>
+        ${rows.map(clothesRow).join('')}</div>`,
+    });
   }).join('');
-  return cards || `<p class="empty-state">${all.length ? '沒有符合的。換個篩選或關鍵字。' : '衣櫃還是空的。按「新增衣服」開始。'}</p>`;
+  return cards || `<p class="empty-state">${total ? '沒有符合的。換個篩選或關鍵字。' : '衣櫃還是空的。按「新增衣服」開始。'}</p>`;
 }
 
 function renderClothes() {
@@ -496,24 +369,10 @@ function renderClothes() {
   // 色系分布（衣櫃裡的，不含已丟）
   const colors = M.countBy(keep, C_COLOR).filter((x) => x.value !== M.EMPTY);
   const noColor = keep.length - colors.reduce((n, x) => n + x.n, 0);
-  const pill = (key, v, label, n) => `<button type="button" class="pill${(f[key] ?? '') === v ? ' active' : ''}" data-action="kind-filter" data-kind="clothes" data-key="${key}" data-v="${esc(v)}">${esc(label)}${n != null ? ` <span>${n}</span>` : ''}</button>`;
-  const partN = (p) => keep.filter((i) => M.dataOf(i).f1 === p).length;
+  const pill = (key, v, label, n) => kindPill('clothes', f, key, v, label, n);
+  const parts = clothesParts(all);
   page.innerHTML = `<div class="kind-page">
-    <header class="trip-head">
-      <div>
-        <div class="crumb">我的衣櫃</div>
-        <h1>衣服</h1>
-        <p class="trip-sub">看看自己有什麼，少買重複的。</p>
-      </div>
-      <div class="trip-actions">
-        <details class="more-menu"><summary class="btn btn-outline btn-sm btn-icon" aria-label="更多" title="更多">⋯</summary>
-          <div class="more-list">
-            ${foreign.length ? `<button type="button" data-action="set-rate" data-kind="clothes">${icon('coins')}整批改匯率</button>` : ''}
-            <button type="button" data-action="export-csv" data-kind="clothes">${icon('download')}下載 CSV</button>
-          </div></details>
-        <button type="button" class="btn btn-primary" data-action="new-item" data-kind="clothes">${icon('plus')}新增衣服</button>
-      </div>
-    </header>
+    ${pageHead({ kind: 'clothes', crumb: '我的衣櫃', title: '衣服', sub: '看看自己有什麼，少買重複的。', newLabel: '新增衣服', foreign: foreign.length })}
     ${all.length ? `
     <div class="kpis">
       <div class="kpi"><span>衣櫃裡 ${svgIcon('shirt')}</span><b>${keep.length} 件</b><small>不含已丟</small></div>
@@ -528,22 +387,104 @@ function renderClothes() {
     </div>` : ''}` : ''}
     <div class="list-head"><h2>我的衣櫃</h2><span>${f.__color ? `只看 ${esc(f.__color)} · <button type="button" class="link-btn" data-action="kind-filter" data-kind="clothes" data-key="__color" data-v="">清除</button>` : `${keep.length} 件`}</span></div>
     <div class="list-tools">
-      <div class="pills">${pill('__part', '', '全部', keep.length)}${C_PART.options.map((p) => pill('__part', p, p, partN(p))).join('')}</div>
+      <div class="pills">${pill('__part', '', '全部', keep.length)}${parts.filter((p) => p.part !== M.EMPTY).map((p) => pill('__part', p.part, p.part, p.kept)).join('')}</div>
       <input class="search-input" id="search" type="search" placeholder="搜尋名稱、品牌、顏色、備註…" value="${esc(state.search.clothes ?? '')}">
     </div>
     <div class="pills pills-sub">${pill('__status', '', '在穿＋想丟')}${pill('__status', '想丟', '想丟', toss)}${pill('__status', '已丟', '已丟', gone)}${pill('__status', 'all', '全部', all.length)}</div>
-    <div id="kind-list">${clothesList(all, f)}</div>
+    <div id="kind-list">${clothesList(parts, f, all.length)}</div>
   </div>`;
-  $('#search').oninput = (e) => {
-    state.search.clothes = e.target.value;
-    $('#kind-list').innerHTML = clothesList(all, f);
-    applyIcons($('#kind-list'));
-  };
-  $('#kind-list').onchange = (e) => {
-    const sel = e.target.closest('select[data-quick]');
-    if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
-  };
+  wireList('clothes', () => clothesList(parts, f, all.length));
 }
+
+// ================================================================ 書
+// 我的書櫃（標題、總覽、語言分布）→ 依作者／社團一張卡片 → 每本（書背方塊｜書名、管道、標籤｜語言｜形式｜連結）。
+// 作者多的時候卡片預設收起來，整頁就像一份作者索引；搜尋或篩選時自動打開。
+
+const B_FIELD = (k) => M.fieldsOf('books').find((x) => x.key === k);
+const B_LANG = B_FIELD('f2');
+const B_FORM = B_FIELD('f3');
+const langTone = (v) => B_LANG.tones[v] ?? 'none'; // 語言 → 書背顏色（KINDS 的 tones）
+const authorOf = (i) => String(M.dataOf(i).f1 ?? '').trim() || M.EMPTY;
+const COLLAPSE_OVER = 6; // 作者超過幾位時，卡片預設收起來
+
+function bookRow(i) {
+  const d = M.dataOf(i);
+  const sub = [d.f4, ...M.normTags(d.f7).map((t) => `#${t}`)].filter(Boolean);
+  return `<div class="pt-row has-tile" data-action="edit-item" data-id="${i.id}">
+    <span class="tile book-tile tone-${langTone(d.f2)}">${esc(initial(i.name, ''))}</span>
+    <div class="pt-name"><b>${esc(i.name)}</b>${sub.length ? `<div class="pt-sub">${sub.map(esc).join(' · ')}</div>` : ''}${noteHTML(i.note)}</div>
+    <div class="pt-qty">${d.f2 ? badge(B_LANG, d.f2) : ''}</div>
+    <div class="pt-price">${esc(d.f3 ?? '')}</div>
+    <div class="pt-status">${linkIcon(d.f8, 'btn btn-outline btn-sm btn-icon')}</div>
+  </div>`;
+}
+
+/** 依作者／社團分好（書多的在前、沒填的放最後），每位的語言組成先算好：打字搜尋時不用重算 */
+function bookAuthors(all) {
+  const by = new Map();
+  for (const i of all) { const a = authorOf(i); if (!by.has(a)) by.set(a, []); by.get(a).push(i); }
+  return [...by].map(([who, items]) => ({ who, items, langs: M.countBy(items, B_LANG).filter((x) => x.value !== M.EMPTY).map((x) => `${x.value} ${x.n}`).join(' · ') }))
+    .sort((a, b) => (a.who === M.EMPTY) - (b.who === M.EMPTY) || b.items.length - a.items.length || a.who.localeCompare(b.who, 'zh-Hant'));
+}
+
+function booksList(authors, f, total) {
+  const q = state.search.books ?? '';
+  const fields = M.fieldsOf('books');
+  const ok = (i) => { const d = M.dataOf(i); return (!f.__lang || d.f2 === f.__lang) && (!f.__form || d.f3 === f.__form) && M.itemMatches(i, fields, q); };
+  const filtering = !!(q || f.__lang || f.__form);
+  const opens = f.__open ?? {};
+  const many = authors.length > COLLAPSE_OVER;
+  const cards = authors.map((a) => {
+    const rows = a.items.filter(ok).sort(byName);
+    if (!rows.length) return '';
+    return groupCard({
+      kind: 'books', key: a.who, name: a.who, opened: filtering || (opens[a.who] ?? !many),
+      meta: a.langs || '沒填語言', amountLabel: '本數', amount: a.items.length,
+      table: `<div class="pt"><div class="pt-head has-tile"><span></span><span>書名</span><span>語言</span><span>形式</span><span></span></div>
+        ${rows.map(bookRow).join('')}</div>`,
+    });
+  }).join('');
+  return cards || `<p class="empty-state">${total ? '沒有符合的。換個篩選或關鍵字。' : '書櫃還是空的。按「新增書」開始。'}</p>`;
+}
+
+function renderBooks() {
+  const f = (state.filters.books ||= {});
+  const all = itemsOf('books');
+  const fields = M.fieldsOf('books');
+  const authors = bookAuthors(all);
+  const named = authors.filter((a) => a.who !== M.EMPTY).length;
+  const langs = M.countBy(all, B_LANG).filter((x) => x.value !== M.EMPTY);
+  const forms = M.countBy(all, B_FORM).filter((x) => x.value !== M.EMPTY);
+  const ebook = forms.find((x) => x.value === '電子')?.n ?? 0;
+  const foreign = M.foreignCurrencies(all, fields);
+  const pill = (key, v, label, n) => kindPill('books', f, key, v, label, n);
+  const many = authors.length > COLLAPSE_OVER;
+  page.innerHTML = `<div class="kind-page">
+    ${pageHead({ kind: 'books', crumb: '我的書櫃', title: '書', sub: '買之前先搜一下，有沒有已經收過。', newLabel: '新增書', foreign: foreign.length })}
+    <div class="book-search"><input class="search-input" id="search" type="search" placeholder="搜尋書名、作者、社團、標籤…" value="${esc(state.search.books ?? '')}" autocomplete="off"></div>
+    ${all.length ? `
+    <div class="kpis">
+      <div class="kpi"><span>書櫃裡 ${svgIcon('book')}</span><b>${all.length} 本</b></div>
+      <div class="kpi"><span>作者／社團 ${svgIcon('users')}</span><b>${named} 位</b></div>
+      ${langs.slice(0, 2).map((x) => `<button type="button" class="kpi kpi-${langTone(x.value)}" data-action="kind-filter" data-kind="books" data-key="__lang" data-v="${esc(f.__lang === x.value ? '' : x.value)}"><span>${esc(x.value)}</span><b>${x.n} 本</b><small>${f.__lang === x.value ? '再點一下看全部' : '點一下只看這個語言'}</small></button>`).join('')}
+    </div>
+    ${langs.length ? `<div class="progress-card">
+      <div class="progress-top"><b>語言</b><span class="text-muted">${ebook ? `電子書 ${ebook} 本` : ''}</span></div>
+      <div class="stack">${langs.map((x) => `<i class="s-${langTone(x.value)}" style="width:${(x.n / all.length) * 100}%" title="${esc(x.value)} ${x.n} 本"></i>`).join('')}</div>
+      <div class="legend">${langs.map((x) => `<em class="t-${langTone(x.value)}">● ${esc(x.value)} ${x.n}</em>`).join('')}</div>
+    </div>` : ''}` : ''}
+    <div class="list-head"><h2>依作者／社團</h2><span>${named} 位${many ? ` · <button type="button" class="link-btn" data-action="open-all" data-kind="books" data-on="1">全部展開</button> · <button type="button" class="link-btn" data-action="open-all" data-kind="books" data-on="">全部收起</button>` : ''}</span></div>
+    <div class="list-tools">
+      <div class="pills">${pill('__lang', '', '全部語言', all.length)}${langs.map((x) => pill('__lang', x.value, x.value, x.n)).join('')}</div>
+      ${forms.length > 1 ? `<div class="pills">${pill('__form', '', '全部')}${forms.map((x) => pill('__form', x.value, x.value, x.n)).join('')}</div>` : ''}
+    </div>
+    <div id="kind-list">${booksList(authors, f, all.length)}</div>
+  </div>`;
+  wireList('books', () => booksList(authors, f, all.length));
+}
+
+/** 各頁的篩選（state.filters[kind] 的 key）對應到哪個欄位：新增時帶入篩選中的值 */
+const PAGE_FILTER = { clothes: { f1: '__part' }, books: { f2: '__lang', f3: '__form' }, proxy: {} };
 
 /** 新增時先帶入：欄位的預設值（例如狀態＝待買），再用目前的篩選蓋過（篩了批次、幫誰買，新增的就是那一批、那個人） */
 function newItemPreset(kind) {
@@ -552,7 +493,7 @@ function newItemPreset(kind) {
   if (batch && batch !== M.NO_BATCH && batch !== DONE_LOOSE) preset.__note = batch; // 現在看的這一趟 → 新的那件備註先寫好 #批次
   for (const f of M.fieldsOf(kind)) {
     if (f.type !== 'choice') continue;
-    const want = kind === 'proxy' ? null : kind === 'clothes' ? (f.key === 'f1' ? state.filters.clothes?.__part : null) : state.filters[kind]?.[f.key];
+    const want = state.filters[kind]?.[PAGE_FILTER[kind]?.[f.key]];
     if (want && want !== M.EMPTY) preset[f.key] = want;
     else if (f.def) preset[f.key] = f.def;
   }
@@ -634,18 +575,12 @@ function exportCSV(kind) {
 // ---- 整批改匯率：目前篩選出來的物品，某個外幣的匯率一次改掉（刷卡帳單出來後用）
 
 function rateModal(kind) {
-  const v = kindView(kind);
-  let scope;
-  if (kind === 'proxy') { // 代購：這一趟的全部物品
-    const sc = proxyScope();
-    v.shown = sc.items;
-    v.foreign = M.foreignCurrencies(sc.items, v.fields);
-    scope = `「${sc.title}」`;
-  } else {
-    const active = Object.entries(v.filters).filter(([key, x]) => x && !key.startsWith('__')).map(([key, x]) => `${v.fields.find((f) => f.key === key)?.label ?? key}＝${x}`);
-    scope = active.length ? `目前篩選（${active.join('、')}）` : '全部';
-  }
-  const curs = v.foreign;
+  const fields = M.fieldsOf(kind);
+  const sc = kind === 'proxy' ? proxyScope() : null; // 代購：這一趟的物品
+  const shown = sc ? sc.items : itemsOf(kind);
+  const scope = sc ? `「${sc.title}」` : `全部${M.KINDS[kind].name}`;
+  const curs = M.foreignCurrencies(shown, fields);
+  const v = { shown, fields };
   if (!curs.length) { toast(`${scope}沒有外幣的金額`, 'info'); return; }
   openModal(`<div class="modal"><form novalidate>
     ${modalHeader('整批改匯率', '套用')}
@@ -1251,11 +1186,13 @@ function onSyncStatus() {
 // ---------------------------------------------------------------- 路由與事件
 
 /** #clothes、#books、#proxy、#settings；其他都到衣服 */
+const PAGES = { clothes: renderClothes, books: renderBooks, proxy: renderProxy, settings: renderSettings };
+
 function render() {
   const t = location.hash.slice(1);
-  state.tab = t === 'settings' || M.KINDS[t] ? t : 'clothes';
+  state.tab = PAGES[t] ? t : 'clothes';
   renderNav();
-  if (state.tab === 'settings') renderSettings(); else if (state.tab === 'proxy') renderProxy(); else if (state.tab === 'clothes') renderClothes(); else renderKind(state.tab);
+  PAGES[state.tab]();
   applyIcons(page);
   initSegmented(page);
 }
@@ -1263,28 +1200,21 @@ function render() {
 const ACTIONS = {
   'new-item': (el) => itemModal(el.dataset.kind, null, newItemPreset(el.dataset.kind)),
   'edit-item': (el) => { const i = db.get('items', el.dataset.id); if (i) itemModal(i.kind, i.id); },
-  'clear-filters': (el) => {
-    const f = state.filters[el.dataset.kind] ?? {};
-    state.filters[el.dataset.kind] = Object.fromEntries(Object.entries(f).filter(([k]) => k.startsWith('__')));
+  'set-rate': (el) => rateModal(el.dataset.kind),
+  'close-batch': (el) => closeBatch(el.dataset.tag),
+  'toggle-open': (el) => {
+    const f = (state.filters[el.dataset.kind] ||= {});
+    f.__open = { ...f.__open, [el.dataset.key]: el.getAttribute('aria-expanded') !== 'true' };
     saveFilters();
     render();
   },
-  'set-rate': (el) => rateModal(el.dataset.kind),
-  'close-batch': (el) => closeBatch(el.dataset.tag),
-  'toggle-person': (el) => {
-    const f = (state.filters.proxy ||= {});
-    f.__open = { ...f.__open, [el.dataset.who]: el.getAttribute('aria-expanded') !== 'true' };
+  'open-all': (el) => {
+    const f = (state.filters[el.dataset.kind] ||= {});
+    f.__open = Object.fromEntries([...page.querySelectorAll(`.pc-head[data-kind="${el.dataset.kind}"]`)].map((h) => [h.dataset.key, !!el.dataset.on]));
     saveFilters();
     render();
   },
   'kind-filter': (el) => { (state.filters[el.dataset.kind] ||= {})[el.dataset.key] = el.dataset.v; saveFilters(); render(); },
-  'toggle-part': (el) => {
-    const f = (state.filters.clothes ||= {});
-    f.__open = { ...f.__open, [el.dataset.part]: el.getAttribute('aria-expanded') !== 'true' };
-    saveFilters();
-    render();
-  },
-  'proxy-filter': (el) => { (state.filters.proxy ||= {}).__status = el.dataset.v; saveFilters(); render(); },
   'toggle-paid': (el) => togglePaid(el.dataset.keys.split('\n'), el.dataset.who),
   'reopen-batch': (el) => { setClosed(el.dataset.tag, false); toast(`已重新打開 ${el.dataset.tag}`); render(); },
   'export-csv': (el) => exportCSV(el.dataset.kind),
@@ -1316,7 +1246,6 @@ document.addEventListener('keydown', (e) => {
 // 點視窗外面（暗色區域）關閉
 document.addEventListener('click', (e) => { if (e.target.matches('dialog.modal-overlay[open]')) e.target.close(); });
 window.addEventListener('hashchange', render);
-PHONE.addEventListener('change', () => { if (!modal.open) render(); });
 window.appRefresh = () => { if (!modal.open) render(); }; // 同步拉到別台裝置的修改後重畫
 
 /** 代購舊版的「批次」欄 → 備註的 #標籤（開網站、匯入之後跑；只看代購） */
