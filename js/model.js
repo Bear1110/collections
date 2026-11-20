@@ -14,6 +14,7 @@
 //   fixed   （單選）只能從選項選，不能輸入新的
 //   chips   （單選）用最近用過的值當快速按鈕（可以按 ✕ 不再推薦），也能輸入新的
 //   twdOnly （金額）只能填台幣
+//   quietValues （單選）手機卡片上不寫的值（常態，例如衣服的「在穿」）
 //   hideValues （單選）這些值的物品平常不顯示，篩選這一欄選到它才看得到（衣服的「已丟」）
 
 export const CURRENCIES = ['TWD', 'JPY', 'USD', 'EUR'];
@@ -36,7 +37,7 @@ export const KINDS = {
       f('f6', '色系', 'choice', { options: ['黑', '白', '灰', '藍', '綠', '棕', '米', '紅', '橘', '黃', '紫', '粉', '牛仔', '多色'], filter: true, fixed: true }),
       f('f7', '價格', 'money', { list: true }),
       f('f8', '購入', 'date', { list: true }),
-      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true, hideValues: ['已丟'] }),
+      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true, hideValues: ['已丟'], quietValues: ['在穿'] }),
       f('f10', '網址', 'url', { list: true }),
       f('f11', '商品編號', 'text'),
     ],

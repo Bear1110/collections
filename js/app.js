@@ -48,7 +48,7 @@ function renderNav() {
 // ---------------------------------------------------------------- 種類頁（物品清單）
 
 function cellHTML(f, v, d = {}, id = null) {
-  if (f.type === 'choice' && f.quick && id) return quickSelect(f, v, id);
+  if (isQuick(f) && id) return quickSelect(f, v, id);
   if (v == null || v === '') return '';
   if (f.type === 'url') {
     const l = M.linkOf(v);
@@ -102,11 +102,27 @@ function kindView(kind) {
   const group = fields.find((f) => f.key === k.group_by);
   const cols = fields.filter((f) => f.list && f !== group);
   const money = fields.find((f) => f.type === 'money');
-  return { kind, k, fields, filters, q, all: visible, shown, group, cols, money, view, batches, closedN, hidden, pool: inBatch };
+  const foreign = M.foreignCurrencies(shown, fields); // 顯示中的物品用到的外幣（「匯率」按鈕、整批改匯率）
+  return { foreign, kind, k, fields, filters, q, all: visible, shown, group, cols, money, view, batches, closedN, hidden, pool: inBatch };
+}
+
+/** 列表上直接改的單選（狀態、收錢） */
+const isQuick = (f) => f.type === 'choice' && f.quick;
+
+/** 手機（< 600px）用卡片、電腦用表格：只畫用得到的那一種，螢幕寬度跨過去時重畫（見 init） */
+const PHONE = matchMedia('(max-width: 599px)');
+
+/** 表格和卡片共用：空白訊息、分組（篩了分組欄位就不分）、分組標題的件數和金額 */
+function listHTML(v, item, groupHead, empty) {
+  const { shown, group, all, filters, fields, money } = v;
+  if (!shown.length) return empty(!all.length ? '還沒有東西。按「新增」開始。' : '沒有符合的。換個關鍵字或清除篩選。');
+  if (!group || filters[group.key]) return shown.map(item).join('');
+  return M.groupItems(shown, group).map((g) =>
+    groupHead(`${esc(g.value)}<small>${g.items.length} 件${groupMoney(g.items, money, fields)}</small>`) + g.items.map(item).join('')).join('');
 }
 
 function itemRows(v) {
-  const { shown, group, cols, all, filters, fields, money } = v;
+  const { cols } = v;
   const row = (i) => {
     const d = M.dataOf(i);
     return `<tr class="click-row" data-action="edit-item" data-id="${i.id}">
@@ -114,15 +130,38 @@ function itemRows(v) {
       ${cols.map((f) => `<td class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${cellHTML(f, d[f.key], d, i.id)}</td>`).join('')}
     </tr>`;
   };
-  if (!shown.length) {
-    const why = !all.length ? '還沒有東西。按「新增」開始。' : '沒有符合的。換個關鍵字或清除篩選。';
-    return `<tr><td colspan="${cols.length + 1}" class="empty-state">${why}</td></tr>`;
-  }
-  // 篩選了分組欄位就不用再分組
-  if (!group || filters[group.key]) return shown.map(row).join('');
-  return M.groupItems(shown, group).map((g) =>
-    `<tr class="group-row"><td colspan="${cols.length + 1}">${esc(g.value)}<small>${g.items.length} 件${groupMoney(g.items, money, fields)}</small></td></tr>${g.items.map(row).join('')}`).join('');
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>名稱</th>${cols.map((f) => `<th class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${esc(f.label)}</th>`).join('')}</tr></thead>
+    <tbody>${listHTML(v, row, (h) => `<tr class="group-row"><td colspan="${cols.length + 1}">${h}</td></tr>`,
+      (t) => `<tr><td colspan="${cols.length + 1}" class="empty-state">${t}</td></tr>`)}</tbody></table></div>`;
 }
+
+/**
+ * 手機的卡片：第一行名稱＋金額，第二行其他欄位用「·」串起來，下面備註，最後一行是直接改的單選和網址。
+ * 數量不另外寫（金額下面已經有 ×數量＝小計）；欄位的 quietValues（衣服的「在穿」）不寫。
+ */
+function itemCards(v) {
+  const { cols, fields } = v;
+  const qtyKeys = new Set(fields.filter((f) => f.type === 'money' && f.qty).map((f) => f.qty));
+  const moneyCols = cols.filter((f) => f.type === 'money');
+  const actionCols = cols.filter((f) => isQuick(f) || f.type === 'url');
+  const metaCols = cols.filter((f) => f.type !== 'money' && !actionCols.includes(f) && !qtyKeys.has(f.key));
+  const card = (i) => {
+    const d = M.dataOf(i);
+    const meta = metaCols.filter((f) => !(f.quietValues ?? []).includes(d[f.key]))
+      .map((f) => { const c = cellHTML(f, d[f.key], d); return c && f.type === 'number' ? `${esc(f.label)} ${c}` : c; }).filter(Boolean);
+    const actions = actionCols.map((f) => cellHTML(f, d[f.key], d, i.id)).join('');
+    return `<div class="item-card" data-action="edit-item" data-id="${i.id}">
+      <div class="ic-top"><b>${esc(i.name)}</b>${moneyCols.map((f) => `<span class="ic-money">${cellHTML(f, d[f.key], d)}</span>`).join('')}</div>
+      ${meta.length ? `<div class="ic-meta">${meta.join('<span class="ic-dot">·</span>')}</div>` : ''}
+      ${i.note ? `<div class="row-note">${esc(i.note)}</div>` : ''}
+      ${actions ? `<div class="ic-actions">${actions}</div>` : ''}
+    </div>`;
+  };
+  return listHTML(v, card, (h) => `<div class="ic-group">${h}</div>`, (t) => `<p class="empty-state">${t}</p>`);
+}
+
+const listBody = (v) => (PHONE.matches ? itemCards(v) : itemRows(v));
 
 /** 分組標題的金額合計（不算錢的、沒匯率的不算） */
 function groupMoney(items, money, fields) {
@@ -193,8 +232,8 @@ function renderKind(kind) {
         <h3>${icon(v.k.icon)}${esc(v.k.name)}<small class="card-meta">${v.all.length} 件</small></h3>
         <div class="header-actions">
           ${kind === 'proxy' && v.view === 'open' && v.filters.__batch && v.filters.__batch !== M.NO_BATCH ? `<button type="button" class="btn btn-outline btn-sm" data-action="close-batch" data-tag="${esc(v.filters.__batch)}">${icon('check')}結清這批</button>` : ''}
-          ${v.money ? `<button type="button" class="btn btn-outline btn-sm" data-action="set-rate" data-kind="${kind}">${icon('coins')}匯率</button>` : ''}
-          <button type="button" class="btn btn-outline btn-sm" data-action="export-csv" data-kind="${kind}">${icon('download')}CSV</button>
+          ${v.foreign.length ? `<button type="button" class="btn btn-outline btn-sm" data-action="set-rate" data-kind="${kind}" title="整批改匯率" aria-label="整批改匯率">${icon('coins')}<span class="wide-only">匯率</span></button>` : ''}
+          <button type="button" class="btn btn-outline btn-sm" data-action="export-csv" data-kind="${kind}" title="下載 CSV" aria-label="下載 CSV">${icon('download')}<span class="wide-only">CSV</span></button>
           <button type="button" class="btn btn-primary btn-sm" data-action="new-item" data-kind="${kind}">${icon('plus')}新增</button>
         </div>
       </div>
@@ -206,18 +245,15 @@ function renderKind(kind) {
         ${rest.map((f) => filterSelect(f, f.hideValues ? v.pool : v.all, v.filters[f.key] ?? '')).join('')}
         ${activeRest ? `<button type="button" class="btn btn-outline btn-sm" data-action="clear-filters" data-kind="${kind}">清除篩選</button>` : ''}</details>` : ''}
       <input class="search-input" id="search" type="search" placeholder="搜尋名稱、欄位、備註…" value="${esc(v.q)}">
-      <div class="table-wrap"><table>
-        <thead><tr><th>名稱</th>${v.cols.map((f) => `<th class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${esc(f.label)}</th>`).join('')}</tr></thead>
-        <tbody id="item-rows">${itemRows(v)}</tbody>
-      </table></div>
+      <div id="item-list">${listBody(v)}</div>
     </section>`;
   // 打字時只重畫表格內容，搜尋框不動（游標、輸入法都不受影響）
   $('#search').oninput = (e) => {
     state.search[kind] = e.target.value;
     const view = kindView(kind);
-    $('#item-rows').innerHTML = itemRows(view);
+    $('#item-list').innerHTML = listBody(view);
     $('#summary').textContent = summaryText(view);
-    applyIcons($('#item-rows'));
+    applyIcons($('#item-list'));
   };
   for (const sel of page.querySelectorAll('[data-filter]')) {
     sel.onchange = () => {
@@ -227,8 +263,8 @@ function renderKind(kind) {
       render();
     };
   }
-  // 列表上直接改狀態：委派在 tbody 上（搜尋時表格內容會重畫）
-  $('#item-rows').onchange = (e) => {
+  // 列表上直接改狀態：委派在列表外框上（搜尋時表格和卡片會重畫）
+  $('#item-list').onchange = (e) => {
     const sel = e.target.closest('select[data-quick]');
     if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
   };
@@ -309,7 +345,7 @@ function exportCSV(kind) {
 
 function rateModal(kind) {
   const v = kindView(kind);
-  const curs = M.foreignCurrencies(v.shown, v.fields);
+  const curs = v.foreign;
   const active = Object.entries(v.filters).filter(([key, x]) => x && !key.startsWith('__')).map(([key, x]) => `${v.fields.find((f) => f.key === key)?.label ?? key}＝${x}`);
   if (v.filters.__batch) active.unshift(`批次＝${v.filters.__batch}`);
   const scope = active.length ? `目前篩選（${active.join('、')}）` : '全部';
@@ -965,6 +1001,7 @@ document.addEventListener('click', (e) => {
 // 點視窗外面（暗色區域）關閉
 document.addEventListener('click', (e) => { if (e.target.matches('dialog.modal-overlay[open]')) e.target.close(); });
 window.addEventListener('hashchange', render);
+PHONE.addEventListener('change', () => { if (!modal.open) render(); });
 window.appRefresh = () => { if (!modal.open) render(); }; // 同步拉到別台裝置的修改後重畫
 
 /** 代購舊版的「批次」欄 → 備註的 #標籤（開網站、匯入之後跑；只看代購） */

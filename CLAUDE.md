@@ -7,6 +7,7 @@
 - 三種收藏寫死：衣服（clothes）、書（books）、代購（proxy）。欄位定義在 `js/model.js` 的 `KINDS`，**要改欄位就改這裡**。
   欄位代號（f1、f2…）是舊資料的對應，不要改號、不要重用；拿掉欄位時舊值會留在 data 裡，不影響。
 - `js/model.js`：資料規則（金額換算、日期、網址、篩選、分組、合計、整批改匯率、舊資料轉換）。**改規則一定補 `test/model.test.mjs`。**
+- 手機（< 600px）的物品列表是卡片（`itemCards`），不是 reze-helper 準則的「表格左右滑」：每列有直接改的下拉、欄位多，表格在手機上看不到。表格和卡片共用 `listHTML`（分組、空白訊息），只畫用得到的那一種。
 - `js/app.js`：只負責畫面。路由 `#clothes`、`#books`、`#proxy`、`#settings`，分頁列固定。
 - `js/db.js` 的 `SCHEMA`：`items`（kind、name、data JSON、note）和 `settings`。舊版的 `collections` 表已停用（sheetId 2 退休），
   開網站時 `migrateLocal()` 會把舊的本機資料轉成新版；匯入舊版備份也會轉。

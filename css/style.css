@@ -507,7 +507,7 @@ details.guide > summary { cursor: pointer; color: var(--accent); }
 details.guide > div { margin-top: 6px; line-height: 1.7; }
 
 /* ============================================================
-   手機 < 600px：分頁移到下方、表單全螢幕、表格在卡片裡左右滑且第一欄固定
+   手機 < 600px：分頁移到下方、表單全螢幕；物品列表換成卡片（app.js 的 itemCards），所以沒有表格規則
    ============================================================ */
 @media (max-width: 599px) {
   #main-nav {
@@ -570,19 +570,9 @@ details.guide > div { margin-top: 6px; line-height: 1.7; }
   .chart-type-toggle::-webkit-scrollbar { display: none; }
   .chart-type-btn { flex-shrink: 0; white-space: nowrap; }
 
-  .table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
-  table { font-size: 0.82rem; }
-  thead th { padding: 0.5rem; font-size: 0.72rem; }
-  tbody td, tfoot td { padding: 0.5rem; }
-  .table-wrap th:first-child,
-  .table-wrap td:first-child:not([colspan]) {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: var(--bg-card);
-    box-shadow: 1px 0 0 var(--border-color);
-  }
-  .table-wrap tbody tr:hover td:first-child:not([colspan]) { background: var(--bg-card-hover); }
+  /* 手機上只留圖示的按鈕（文字包在 .wide-only 裡）：跟列上的圖示按鈕一樣大小 */
+  .wide-only { display: none; }
+  .header-actions .btn:has(.wide-only) { padding: 0.35rem 0.5rem; }
 
   /* 彈出視窗：全螢幕，標題列固定在上（✕｜標題｜儲存），按鈕固定在下 */
   dialog.modal-overlay { align-items: stretch; }
@@ -657,11 +647,11 @@ details.filter-box { margin-bottom: 12px; }
 details.filter-box > summary { cursor: pointer; color: var(--accent); font-size: 0.88rem; margin-bottom: 10px; width: max-content; }
 
 /* 物品列表 */
-tr.group-row td {
+tr.group-row td, .ic-group {
   background: var(--bg-secondary); color: var(--text-heading); font-weight: 600; font-size: 0.85rem;
   position: sticky; left: 0;
 }
-tr.group-row small { margin-left: 8px; color: var(--text-muted); font-weight: 400; }
+tr.group-row small, .ic-group small { margin-left: 8px; color: var(--text-muted); font-weight: 400; }
 tr.click-row { cursor: pointer; }
 tr.click-row:hover td { background: var(--bg-card-hover); }
 .row-note { color: var(--text-muted); font-size: 0.78rem; margin-top: 2px; max-width: 28em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -694,6 +684,21 @@ select.cell-select { width: auto; min-width: 5.5em; padding: 4px 6px; font-size:
 
 /* 選資料表 */
 .sheet-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
-.sheet-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); text-align: left; cursor: pointer; font: inherit; }
-.sheet-choice:hover { border-color: var(--accent); background: var(--bg-card-hover); }
+.sheet-choice, .item-card { padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); cursor: pointer; }
+.sheet-choice:hover, .item-card:hover, .item-card:active { border-color: var(--accent); background: var(--bg-card-hover); }
+.sheet-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; font: inherit; }
 .sheet-choice .text-muted { font-size: 0.8rem; }
+
+/* 手機的卡片列表（itemCards）：外框和選資料表的按鈕同一個樣子、分組標題和表格的分組列同一個樣子 */
+.ic-group { display: flex; align-items: baseline; gap: 8px; padding: 12px 4px 6px; font-size: 0.9rem; }
+.ic-group small { font-size: 0.78rem; }
+.item-card { margin: 0 0 8px; }
+.ic-top { display: flex; align-items: baseline; gap: 10px; }
+.ic-top b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ic-money { flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.ic-money .row-note { margin-top: 0; }
+.ic-meta { margin-top: 4px; color: var(--text-secondary); font-size: 0.82rem; line-height: 1.5; }
+.ic-dot { margin: 0 6px; color: var(--text-muted); }
+.item-card .row-note { white-space: normal; max-width: none; }
+.ic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.ic-actions a.link-cell { max-width: 100%; }
