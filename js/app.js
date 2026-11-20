@@ -97,11 +97,12 @@ function kindView(kind) {
     if (filters.__batch && !batches.some((b) => M.sameTag(b.tag, filters.__batch))) delete filters.__batch;
   }
   const inBatch = all.filter((i) => M.inBatch(i, filters.__batch));
-  const shown = M.filterItems(inBatch, fields, { filters, q }).sort(byName);
+  const { items: visible, hidden } = M.hideByDefault(inBatch, fields, filters); // 衣服的「已丟」平常不顯示
+  const shown = M.filterItems(visible, fields, { filters, q }).sort(byName);
   const group = fields.find((f) => f.key === k.group_by);
   const cols = fields.filter((f) => f.list && f !== group);
   const money = fields.find((f) => f.type === 'money');
-  return { kind, k, fields, filters, q, all: inBatch, shown, group, cols, money, view, batches, closedN };
+  return { kind, k, fields, filters, q, all: visible, shown, group, cols, money, view, batches, closedN, hidden, pool: inBatch };
 }
 
 function itemRows(v) {
@@ -140,6 +141,7 @@ function summaryText(v) {
     if (s.total) parts.push(`合計 NT$${fmt(s.total, 0)}${skip.length ? `（不含${skip.join('、')}）` : ''}`);
     if (s.missing) parts.push(`${s.missing} 件外幣沒填匯率，沒算進去`);
   }
+  for (const h of v.hidden) parts.push(`${h.field.hideValues.join('、')}的 ${h.n} 件沒顯示（篩選「${h.field.label}」可以看）`);
   return parts.join(' · ');
 }
 
@@ -199,9 +201,9 @@ function renderKind(kind) {
       <p class="form-hint card-hint" id="summary">${esc(summaryText(v))}</p>
       ${kind === 'proxy' ? proxyBar(v) : ''}
       ${kind === 'proxy' && v.view === 'closed' && !v.filters.__batch ? closedSummary() : ''}
-      ${main ? filterSelect(main, v.all, v.filters[main.key] ?? '') : ''}
+      ${main ? filterSelect(main, main.hideValues ? v.pool : v.all, v.filters[main.key] ?? '') : ''}
       ${rest.length ? `<details class="filter-box" ${activeRest ? 'open' : ''}><summary>${icon('filter')}篩選${activeRest ? `（${activeRest}）` : ''}</summary>
-        ${rest.map((f) => filterSelect(f, v.all, v.filters[f.key] ?? '')).join('')}
+        ${rest.map((f) => filterSelect(f, f.hideValues ? v.pool : v.all, v.filters[f.key] ?? '')).join('')}
         ${activeRest ? `<button type="button" class="btn btn-outline btn-sm" data-action="clear-filters" data-kind="${kind}">清除篩選</button>` : ''}</details>` : ''}
       <input class="search-input" id="search" type="search" placeholder="搜尋名稱、欄位、備註…" value="${esc(v.q)}">
       <div class="table-wrap"><table>

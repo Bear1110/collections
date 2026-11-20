@@ -193,3 +193,13 @@ test('舊的批次欄 → 備註標籤；台灣價格只能是台幣', () => {
   const row = m.buildItem('proxy', { name: 'x', f9: { a: '500', c: 'JPY', r: '0.2' } });
   assert.deepEqual(JSON.parse(row.data).f9, { a: 500, c: 'TWD', r: 1 });
 });
+
+test('衣服的「已丟」平常不顯示；篩選狀態時才看得到', () => {
+  const fields = m.fieldsOf('clothes');
+  const items = [item('a', { f9: '在穿' }), item('b', { f9: '已丟' }), item('c', {})];
+  const r = m.hideByDefault(items, fields);
+  assert.deepEqual(r.items.map((i) => i.name), ['a', 'c']);
+  assert.equal(r.hidden[0].n, 1);
+  assert.equal(m.hideByDefault(items, fields, { f9: '已丟' }).items.length, 3);
+  assert.ok(!fields.find((x) => x.key === 'f4').list); // 尺寸不在列表上
+});

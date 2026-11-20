@@ -14,6 +14,7 @@
 //   fixed   （單選）只能從選項選，不能輸入新的
 //   chips   （單選）用最近用過的值當快速按鈕（可以按 ✕ 不再推薦），也能輸入新的
 //   twdOnly （金額）只能填台幣
+//   hideValues （單選）這些值的物品平常不顯示，篩選這一欄選到它才看得到（衣服的「已丟」）
 
 export const CURRENCIES = ['TWD', 'JPY', 'USD', 'EUR'];
 const CURRENCY_SIGN = { TWD: 'NT$', JPY: '¥', USD: 'US$', EUR: '€' };
@@ -30,12 +31,12 @@ export const KINDS = {
       f('f1', '部位', 'choice', { options: ['短袖', '長袖', '外套', '長褲', '短褲'], filter: true, fixed: true }),
       f('f2', '款式', 'choice', { options: [], filter: true, list: true, chips: true }),
       f('f3', '品牌', 'choice', { options: [], filter: true, list: true, chips: true }),
-      f('f4', '尺寸', 'text', { list: true }),
+      f('f4', '尺寸', 'text'),
       f('f5', '顏色', 'text', { list: true }),
       f('f6', '色系', 'choice', { options: ['黑', '白', '灰', '藍', '綠', '棕', '米', '紅', '橘', '黃', '紫', '粉', '牛仔', '多色'], filter: true, fixed: true }),
       f('f7', '價格', 'money', { list: true }),
       f('f8', '購入', 'date', { list: true }),
-      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true }),
+      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true, hideValues: ['已丟'] }),
       f('f10', '網址', 'url', { list: true }),
       f('f11', '商品編號', 'text'),
     ],
@@ -504,4 +505,17 @@ export function migrateBatch(item) {
   delete d.f4;
   const note = inBatch(item, tag) ? item.note : toggleTag(item.note, tag);
   return { note, data: JSON.stringify(d) };
+}
+
+/** 平常不顯示的物品（hideValues），除非那一欄正在篩選。回傳 { items: 留下的, hidden: [{ field, n }] } */
+export function hideByDefault(items, fields, filters = {}) {
+  const hidden = [];
+  let out = items;
+  for (const fd of fields) {
+    if (!fd.hideValues?.length || filters[fd.key]) continue;
+    const keep = out.filter((i) => !fd.hideValues.includes(dataOf(i)[fd.key]));
+    if (keep.length < out.length) hidden.push({ field: fd, n: out.length - keep.length });
+    out = keep;
+  }
+  return { items: out, hidden };
 }
