@@ -5,7 +5,7 @@ import * as db from './db.js';
 import * as sync from './cloud/sync.js';
 import * as M from './model.js';
 import { APP_ID, APP_NAME, CLIENT_ID } from './config.js';
-import { $, modal, esc, fmt, toast, info, icon, confirmTyped, openModal, closeModal, modalHeader,
+import { $, modal, esc, fmt, toast, info, icon, svgIcon, confirmTyped, openModal, closeModal, modalHeader,
   applyIcons, initSegmented, initTapTips, downloadFile } from './ui.js';
 import { watchForUpdate } from './update.js';
 
@@ -24,6 +24,8 @@ const setSettingList = (key, list) => db.setSetting(key, JSON.stringify(list));
 const CLOSED_KEY = 'closed.proxy'; // 結清的批次（標籤，小寫）
 const hiddenKey = (kind, key) => `hidden.${kind}.${key}`; // 不再推薦的快速按鈕（小寫）
 const closedSet = () => new Set(settingList(CLOSED_KEY));
+const PAID_KEY = 'paid.proxy'; // 收過錢的「批次|人」（小寫，見 M.payKey）
+const paidSet = () => new Set(settingList(PAID_KEY));
 
 const byName = (a, b) => a.name.localeCompare(b.name, 'zh-Hant', { numeric: true });
 const itemsOf = (kind) => db.where('items', (i) => i.kind === kind);
@@ -47,9 +49,9 @@ function renderNav() {
 
 // ---------------------------------------------------------------- 種類頁（物品清單）
 
-function cellHTML(f, v, d = {}, id = null) {
-  if (isQuick(f) && id) return quickSelect(f, v, id);
+function cellHTML(f, v, d = {}) {
   if (v == null || v === '') return '';
+  if (f.type === 'choice' && f.tones) return badge(f, v);
   if (f.type === 'url') {
     const l = M.linkOf(v);
     return `<a class="link-cell" href="${esc(l.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(v))}">${l.search ? icon('search') : icon('external')}${esc(l.text)}</a>`;
@@ -68,46 +70,36 @@ function cellHTML(f, v, d = {}, id = null) {
   return esc(M.textOf(f, v));
 }
 
-/** 列表上直接改的單選（狀態、收錢）：原生下拉，手機上點一下就跳選單 */
-function quickSelect(f, v, id) {
-  const cur = v ?? '';
-  const opts = [...(f.options ?? [])];
-  if (cur && !opts.includes(cur)) opts.push(cur);
-  return `<select class="cell-select" data-quick="${f.key}" data-id="${id}" aria-label="${esc(f.label)}" data-keep-select>
-    <option value="">—</option>${opts.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-}
+/** 有顏色的單選值（代購的待買／已買／缺貨、衣服的想丟／已丟） */
+const badge = (f, v, extra = '') => `<span class="badge tone-${f.tones?.[v] ?? 'none'}">${esc(v || '未填')}${extra}</span>`;
 
 function kindView(kind) {
   const k = M.KINDS[kind];
   const fields = M.fieldsOf(kind);
   const filters = (state.filters[kind] ||= {});
   const q = state.search[kind] ?? '';
-  let all = itemsOf(kind);
-  let batches = [];
-  let closedN = 0;
-  const view = filters.__view === 'closed' ? 'closed' : 'open';
-  if (kind === 'proxy') {
-    // 進行中／已結清分開看；批次（備註的 #標籤）在分好的那一邊裡篩
-    const closed = closedSet();
-    const archived = new Set(all.filter((i) => M.isArchived(i, closed)).map((i) => i.id));
-    closedN = archived.size;
-    all = all.filter((i) => archived.has(i.id) === (view === 'closed'));
-    batches = M.batchesOf(all);
-    if (all.some((i) => !M.noteTags(i.note).length)) batches.push({ tag: M.NO_BATCH, n: all.filter((i) => M.inBatch(i, M.NO_BATCH)).length });
-    if (filters.__batch && !batches.some((b) => M.sameTag(b.tag, filters.__batch))) delete filters.__batch;
-  }
-  const inBatch = all.filter((i) => M.inBatch(i, filters.__batch));
-  const { items: visible, hidden } = M.hideByDefault(inBatch, fields, filters); // 衣服的「已丟」平常不顯示
+  const pool = itemsOf(kind);
+  const { items: visible, hidden } = M.hideByDefault(pool, fields, filters); // 衣服的「已丟」平常不顯示
   const shown = M.filterItems(visible, fields, { filters, q }).sort(byName);
   const group = fields.find((f) => f.key === k.group_by);
   const cols = fields.filter((f) => f.list && f !== group);
   const money = fields.find((f) => f.type === 'money');
   const foreign = M.foreignCurrencies(shown, fields); // 顯示中的物品用到的外幣（「匯率」按鈕、整批改匯率）
-  return { foreign, kind, k, fields, filters, q, all: visible, shown, group, cols, money, view, batches, closedN, hidden, pool: inBatch };
+  return { foreign, kind, k, fields, filters, q, all: visible, shown, group, cols, money, hidden, pool };
 }
 
-/** 列表上直接改的單選（狀態、收錢） */
-const isQuick = (f) => f.type === 'choice' && f.quick;
+/** 備註：常常是重要的補充（想丟的原因、要什麼顏色、預算），所以用看得到的顏色；#標籤（批次）另外標出來 */
+function noteHTML(note, { dropTags = false } = {}) {
+  if (dropTags) note = M.noteTags(note).reduce((n, t) => M.removeTag(n, t), note ?? '');
+  if (!note) return '';
+  let html = '';
+  let last = 0;
+  for (const m of note.matchAll(M.TAG_RE)) {
+    html += esc(note.slice(last, m.index)) + `<span class="note-tag">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return `<div class="item-note">${html}${esc(note.slice(last))}</div>`;
+}
 
 /** 手機（< 600px）用卡片、電腦用表格：只畫用得到的那一種，螢幕寬度跨過去時重畫（見 init） */
 const PHONE = matchMedia('(max-width: 599px)');
@@ -126,8 +118,8 @@ function itemRows(v) {
   const row = (i) => {
     const d = M.dataOf(i);
     return `<tr class="click-row" data-action="edit-item" data-id="${i.id}">
-      <td><b>${esc(i.name)}</b>${i.note ? `<div class="row-note">${esc(i.note)}</div>` : ''}</td>
-      ${cols.map((f) => `<td class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${cellHTML(f, d[f.key], d, i.id)}</td>`).join('')}
+      <td><b>${esc(i.name)}</b>${noteHTML(i.note)}</td>
+      ${cols.map((f) => `<td class="${f.type === 'money' || f.type === 'number' ? 'num' : ''}">${cellHTML(f, d[f.key], d)}</td>`).join('')}
     </tr>`;
   };
   return `<div class="table-wrap"><table>
@@ -144,17 +136,17 @@ function itemCards(v) {
   const { cols, fields } = v;
   const qtyKeys = new Set(fields.filter((f) => f.type === 'money' && f.qty).map((f) => f.qty));
   const moneyCols = cols.filter((f) => f.type === 'money');
-  const actionCols = cols.filter((f) => isQuick(f) || f.type === 'url');
+  const actionCols = cols.filter((f) => f.type === 'url');
   const metaCols = cols.filter((f) => f.type !== 'money' && !actionCols.includes(f) && !qtyKeys.has(f.key));
   const card = (i) => {
     const d = M.dataOf(i);
     const meta = metaCols.filter((f) => !(f.quietValues ?? []).includes(d[f.key]))
       .map((f) => { const c = cellHTML(f, d[f.key], d); return c && f.type === 'number' ? `${esc(f.label)} ${c}` : c; }).filter(Boolean);
-    const actions = actionCols.map((f) => cellHTML(f, d[f.key], d, i.id)).join('');
+    const actions = actionCols.map((f) => cellHTML(f, d[f.key], d)).join('');
     return `<div class="item-card" data-action="edit-item" data-id="${i.id}">
       <div class="ic-top"><b>${esc(i.name)}</b>${moneyCols.map((f) => `<span class="ic-money">${cellHTML(f, d[f.key], d)}</span>`).join('')}</div>
       ${meta.length ? `<div class="ic-meta">${meta.join('<span class="ic-dot">·</span>')}</div>` : ''}
-      ${i.note ? `<div class="row-note">${esc(i.note)}</div>` : ''}
+      ${noteHTML(i.note)}
       ${actions ? `<div class="ic-actions">${actions}</div>` : ''}
     </div>`;
   };
@@ -173,11 +165,9 @@ function groupMoney(items, money, fields) {
 function summaryText(v) {
   const { shown, all, money, fields } = v;
   const parts = [shown.length === all.length ? `共 ${all.length} 件` : `顯示 ${shown.length}／${all.length} 件`];
-  if (v.kind === 'proxy' && !all.length) return v.view === 'closed' ? '已結清的批次' : '沒有進行中的代購。按「新增」，備註寫 #批次名稱 就會分成一批。';
   if (money) {
     const s = M.sumTWD(shown, money, fields);
-    const skip = fields.flatMap((f) => (f.type === 'choice' ? f.noSum ?? [] : []));
-    if (s.total) parts.push(`合計 NT$${fmt(s.total, 0)}${skip.length ? `（不含${skip.join('、')}）` : ''}`);
+    if (s.total) parts.push(`合計 NT$${fmt(s.total, 0)}`);
     if (s.missing) parts.push(`${s.missing} 件外幣沒填匯率，沒算進去`);
   }
   for (const h of v.hidden) parts.push(`${h.field.hideValues.join('、')}的 ${h.n} 件沒顯示（篩選「${h.field.label}」可以看）`);
@@ -193,33 +183,6 @@ function filterSelect(f, all, current) {
     <select data-filter="${f.key}" data-segmented="6" aria-label="${esc(f.label)}"><option value="">全部</option>${opts}</select></div>`;
 }
 
-/** 代購頁上方：進行中／已結清切換、批次按鈕（#標籤） */
-function proxyBar(v) {
-  const batchOpts = v.batches.map((b) => `<option value="${esc(b.tag)}" ${v.filters.__batch && M.sameTag(v.filters.__batch, b.tag) ? 'selected' : ''}>${esc(b.tag)} ${b.n}</option>`).join('');
-  return `<div class="filter-row"><span class="filter-label">顯示</span>
-      <select data-filter="__view" data-segmented aria-label="顯示"><option value="open" ${v.view === 'open' ? 'selected' : ''}>進行中</option><option value="closed" ${v.view === 'closed' ? 'selected' : ''}>已結清 ${v.closedN}</option></select></div>
-    ${v.batches.length ? `<div class="filter-row"><span class="filter-label">批次</span>
-      <select data-filter="__batch" data-segmented="5" aria-label="批次"><option value="">全部</option>${batchOpts}</select></div>` : ''}`;
-}
-
-/** 已結清：每一批一行摘要（件數、合計、每個人多少），可以看明細或重新打開 */
-function closedSummary() {
-  const closed = settingList(CLOSED_KEY);
-  const items = itemsOf('proxy');
-  const rows = closed.map((key) => {
-    const list = items.filter((i) => M.inBatch(i, key));
-    const tag = M.noteTags(list[0]?.note).find((t) => t.toLowerCase() === key) ?? key;
-    const s = M.batchSummary(list);
-    return `<div class="settings-row"><div><b>${esc(tag)}</b> <span class="text-muted">${s.n} 件 · NT$${fmt(s.total, 0)}</span>
-        <p class="form-hint">${s.byPerson.map((p) => `${esc(p.who)} NT$${fmt(p.total, 0)}`).join('、')}</p></div>
-      <div class="header-actions">
-        <button type="button" class="btn btn-outline btn-sm" data-action="show-batch" data-tag="${esc(tag)}">明細</button>
-        <button type="button" class="btn btn-outline btn-sm" data-action="reopen-batch" data-tag="${esc(tag)}">重新打開</button>
-      </div></div>`;
-  }).join('');
-  return rows ? `<div class="closed-list">${rows}</div>` : '<p class="form-hint">還沒有結清的批次。篩選一個批次後按「結清這批」。</p>';
-}
-
 function renderKind(kind) {
   const v = kindView(kind);
   const filterFields = v.fields.filter((f) => f.filter && (f.type === 'choice' || f.type === 'tags'));
@@ -231,15 +194,12 @@ function renderKind(kind) {
       <div class="card-header">
         <h3>${icon(v.k.icon)}${esc(v.k.name)}<small class="card-meta">${v.all.length} 件</small></h3>
         <div class="header-actions">
-          ${kind === 'proxy' && v.view === 'open' && v.filters.__batch && v.filters.__batch !== M.NO_BATCH ? `<button type="button" class="btn btn-outline btn-sm" data-action="close-batch" data-tag="${esc(v.filters.__batch)}">${icon('check')}結清這批</button>` : ''}
           ${v.foreign.length ? `<button type="button" class="btn btn-outline btn-sm" data-action="set-rate" data-kind="${kind}" title="整批改匯率" aria-label="整批改匯率">${icon('coins')}<span class="wide-only">匯率</span></button>` : ''}
           <button type="button" class="btn btn-outline btn-sm" data-action="export-csv" data-kind="${kind}" title="下載 CSV" aria-label="下載 CSV">${icon('download')}<span class="wide-only">CSV</span></button>
           <button type="button" class="btn btn-primary btn-sm" data-action="new-item" data-kind="${kind}">${icon('plus')}新增</button>
         </div>
       </div>
       <p class="form-hint card-hint" id="summary">${esc(summaryText(v))}</p>
-      ${kind === 'proxy' ? proxyBar(v) : ''}
-      ${kind === 'proxy' && v.view === 'closed' && !v.filters.__batch ? closedSummary() : ''}
       ${main ? filterSelect(main, main.hideValues ? v.pool : v.all, v.filters[main.key] ?? '') : ''}
       ${rest.length ? `<details class="filter-box" ${activeRest ? 'open' : ''}><summary>${icon('filter')}篩選${activeRest ? `（${activeRest}）` : ''}</summary>
         ${rest.map((f) => filterSelect(f, f.hideValues ? v.pool : v.all, v.filters[f.key] ?? '')).join('')}
@@ -258,13 +218,196 @@ function renderKind(kind) {
   for (const sel of page.querySelectorAll('[data-filter]')) {
     sel.onchange = () => {
       if (sel.value) v.filters[sel.dataset.filter] = sel.value; else delete v.filters[sel.dataset.filter];
-      if (sel.dataset.filter === '__view') delete v.filters.__batch; // 換邊的時候批次重選
       saveFilters();
       render();
     };
   }
-  // 列表上直接改狀態：委派在列表外框上（搜尋時表格和卡片會重畫）
-  $('#item-list').onchange = (e) => {
+}
+
+// ================================================================ 代購
+// 這一趟（標題、總覽、進度）→ 朋友的購物清單（篩選）→ 每個朋友一張卡片（目前應收、收款）→ 商品（狀態）。
+// 收款是朋友層級：一趟一個人一次收（settings paid.proxy）；目前應收只算已經買到的。
+
+// 朋友卡片手動展開／收合記在 state.filters.proxy.__open（{ 名字: true/false }，跟篩選一起存）；沒設過：已收款的收起來
+const CUR_SIGN = M.CURRENCY_SIGN;
+const P_STATUS = M.fieldsOf('proxy').find((x) => x.key === 'f2');
+const P_PRICE = M.fieldsOf('proxy').find((x) => x.key === 'f8');
+/** 金額：全部同一個幣別就用原幣（¥12,230），混了好幾種就用台幣 */
+function moneyText(cur, twd, base = null) {
+  const keys = Object.keys(cur);
+  if (keys.length === 1) return `${CUR_SIGN[keys[0]]}${fmt(cur[keys[0]], 0)}`;
+  if (!keys.length && base) return `${CUR_SIGN[base]}0`; // 還沒買到東西：用這一趟的幣別寫 0
+  return `NT$${fmt(twd, 0)}`;
+}
+/** 這一趟主要的幣別（全部同一種才算） */
+const baseCur = (groups) => { const c = new Set(groups.flatMap((g) => Object.keys(g.byCur))); return c.size === 1 ? [...c][0] : null; };
+/** 原幣是外幣時，下面小字附上台幣 */
+const moneyHint = (cur, twd) => (Object.keys(cur).length === 1 && !cur.TWD && twd ? `<small>約 NT$${fmt(twd, 0)}</small>` : '');
+
+const STATUS_TEXT_P = { 待買: '待購買', 已買: '✓ 已購買', 已交貨: '✓ 已交貨', 缺貨: '缺貨' };
+const DONE_LOOSE = '__done'; // 零星（已完成）
+
+/** 這一趟：從 #標籤 來。回傳現在看的是哪一趟、裡面的物品、可以切換的趟 */
+function proxyScope() {
+  const filters = (state.filters.proxy ||= {});
+  const all = itemsOf('proxy');
+  const closed = closedSet();
+  const paid = paidSet();
+  const archived = new Set(all.filter((i) => M.isArchived(i, closed, paid)).map((i) => i.id));
+  const open = all.filter((i) => !archived.has(i.id));
+  const openTrips = M.batchesOf(open).map((b) => b.tag);
+  const hasLoose = open.some((i) => !M.noteTags(i.note).length);
+  const closedTrips = settingList(CLOSED_KEY).map((key) => M.noteTags(all.find((i) => M.inBatch(i, key))?.note).find((t) => t.toLowerCase() === key) ?? key);
+  const doneLoose = all.some((i) => archived.has(i.id) && !M.noteTags(i.note).length);
+  const valid = (t) => t === '' || (t === M.NO_BATCH && hasLoose) || (t === DONE_LOOSE && doneLoose)
+    || [...openTrips, ...closedTrips].some((x) => M.sameTag(x, t));
+  let trip = filters.__batch;
+  if (trip == null || !valid(trip)) trip = openTrips[0] ?? (hasLoose ? M.NO_BATCH : '');
+  const isClosed = trip === DONE_LOOSE || closedTrips.some((x) => M.sameTag(x, trip));
+  const items = trip === '' ? open
+    : trip === M.NO_BATCH ? open.filter((i) => !M.noteTags(i.note).length)
+      : trip === DONE_LOOSE ? all.filter((i) => archived.has(i.id) && !M.noteTags(i.note).length)
+        : (isClosed ? all : open).filter((i) => M.inBatch(i, trip));
+  const title = trip === '' ? '所有進行中' : trip === M.NO_BATCH ? '零星代購' : trip === DONE_LOOSE ? '零星（已完成）' : trip.replace(/^[#＃]/, '');
+  return { filters, trip, title, items, isClosed, openTrips, closedTrips, hasLoose, doneLoose, paid };
+}
+
+/** 換一趟：原生下拉（手機上就是系統選單） */
+function tripSelect(sc) {
+  const opt = (v, label) => `<option value="${esc(v)}" ${v === sc.trip ? 'selected' : ''}>${esc(label)}</option>`;
+  const open = [...sc.openTrips.map((t) => opt(t, t.replace(/^[#＃]/, ''))), sc.hasLoose ? opt(M.NO_BATCH, '零星代購') : '', sc.openTrips.length + sc.hasLoose > 1 ? opt('', '所有進行中') : ''].join('');
+  const done = [...sc.closedTrips.map((t) => opt(t, t.replace(/^[#＃]/, ''))), sc.doneLoose ? opt(DONE_LOOSE, '零星（已完成）') : ''].join('');
+  if (!open && !done) return '';
+  return `<label class="trip-switch">換一趟 ${svgIcon('chevron-right')}<select id="trip-select" data-keep-select aria-label="換一趟">
+    ${open ? `<optgroup label="進行中">${open}</optgroup>` : ''}${done ? `<optgroup label="已結清">${done}</optgroup>` : ''}</select></label>`;
+}
+
+/** 狀態膠囊：點了跳原生選單 */
+function statusPill(cur, id) {
+  return `<label class="pill-select tone-${P_STATUS.tones[cur] ?? 'none'}" title="改採購狀態"><span>${esc(STATUS_TEXT_P[cur] ?? cur)}</span>
+    <select data-quick="f2" data-id="${id}" aria-label="採購狀態" data-keep-select>${P_STATUS.options.map((o) => `<option value="${esc(o)}" ${o === cur ? 'selected' : ''}>${esc(STATUS_TEXT_P[o] ?? o)}</option>`).join('')}</select></label>`;
+}
+
+/** 一件商品：名稱／規格（＋備註、連結）｜數量｜單價｜狀態。整列依狀態上底色 */
+function proxyItemRow(i, dropTags) {
+  const d = M.dataOf(i);
+  const st = M.statusOf(i);
+  const m = M.normMoney(d.f8);
+  const link = d.f10 ? M.linkOf(d.f10) : null;
+  const sub = [d.f5, d.f6].filter(Boolean);
+  return `<div class="pt-row row-${P_STATUS.tones[st] ?? 'none'}" data-action="edit-item" data-id="${i.id}">
+    <div class="pt-name"><b>${esc(i.name)}</b>${link ? ` <a class="pt-link" href="${esc(link.href)}" target="_blank" rel="noopener noreferrer" title="${esc(String(d.f10))}" aria-label="開啟商品網址">${svgIcon(link.search ? 'search' : 'external')}</a>` : ''}
+      ${sub.length ? `<div class="pt-sub">${sub.map(esc).join(' · ')}</div>` : ''}${noteHTML(i.note, { dropTags })}</div>
+    <div class="pt-qty"><span class="narrow-label">×</span>${fmt(M.qtyOf(P_PRICE, d))}</div>
+    <div class="pt-price">${m ? `${CUR_SIGN[m.c]}${fmt(m.a)}` : '<span class="text-muted">—</span>'}</div>
+    <div class="pt-status">${statusPill(st, i.id)}</div>
+  </div>`;
+}
+
+/** 一個朋友的卡片 */
+function personCard(g, rows, opened, dropTags) {
+  const key = g.who.toLowerCase();
+  const pct = g.need ? Math.round((g.bought / g.need) * 100) : 0;
+  const pending = g.toBuy && g.owed !== g.total ? `<small>全部買到約 ${moneyText(g.byCur, g.total)}</small>` : moneyHint(g.owedCur, g.owed);
+  return `<section class="pc${g.paid ? ' is-paid' : ''}${opened ? '' : ' is-collapsed'}">
+    <div class="pc-head" data-action="toggle-person" data-who="${esc(key)}" role="button" tabindex="0" aria-expanded="${opened}">
+      <span class="avatar">${esc([...g.who][0] ?? '?')}</span>
+      <div class="pc-name"><b>${esc(g.who)}</b><span>${g.n} 項商品 · 已買 ${g.bought} 項</span></div>
+      <div class="pc-amount"><span>${g.paid ? '已收金額' : '目前應收'}</span><b>${moneyText(g.owedCur, g.owed, baseCur([g]))}</b>${pending}</div>
+      <span class="pc-chev">${svgIcon('chevron-right')}</span>
+    </div>
+    <div class="pc-bar"><i style="width:${pct}%"></i></div>
+    <div class="pc-foot">
+      <span class="legend"><em class="t-ok">已買 ${g.bought}</em><em class="t-warn">待買 ${g.toBuy}</em><em class="t-bad">缺貨 ${g.oos}</em></span>
+      ${g.paid || g.need ? `<button type="button" class="${g.paid ? 'pay-done' : 'btn-soft'}" data-action="toggle-paid" data-keys="${esc(g.keys.join('\n'))}" data-who="${esc(g.who)}"${g.paid ? ' title="按一下改回未收款"' : ''}>${g.paid ? '✓ 已收款' : '標記已收款'}</button>` : ''}
+    </div>
+    ${opened ? `<div class="pt"><div class="pt-head"><span>商品 / 規格</span><span>數量</span><span>單價</span><span>採購狀態</span></div>
+      ${rows.map((i) => proxyItemRow(i, dropTags)).join('')}</div>` : ''}
+  </section>`;
+}
+
+/** 朋友的購物清單（會跟著篩選、搜尋重畫） */
+/** 狀態篩選：待購買／已購買（含已交貨）／缺貨；未收款篩的是人，不篩商品 */
+const STATUS_FILTER = { 待買: (s) => s === '待買', 已買: (s) => M.BOUGHT.includes(s), 缺貨: (s) => s === '缺貨' };
+
+function proxyList(sc, groups) {
+  const f = sc.filters.__status ?? '';
+  const q = state.search.proxy ?? '';
+  const fields = M.fieldsOf('proxy');
+  const byStatus = STATUS_FILTER[f] ?? (() => true);
+  const rowOk = (i) => byStatus(M.statusOf(i)) && M.itemMatches(i, fields, q);
+  const opens = sc.filters.__open ?? {};
+  const dropTags = sc.trip !== '';
+  const cards = groups
+    .filter((g) => f !== 'unpaid' || (!g.paid && g.need))
+    .map((g) => {
+      const rows = g.items.filter(rowOk).sort(byName);
+      if ((f || q) && !rows.length) return '';
+      const key = g.who.toLowerCase();
+      const opened = f || q ? true : opens[key] ?? !g.paid; // 篩選或搜尋時全部打開
+      return personCard(g, rows, opened, dropTags);
+    }).join('');
+  return cards || `<p class="empty-state">${sc.items.length ? '沒有符合的。換個篩選或關鍵字。' : '這一趟還沒有東西。按「新增商品」開始。'}</p>`;
+}
+
+function renderProxy() {
+  const sc = proxyScope();
+  const groups = M.personGroups(sc.items, sc.paid);
+  const s2 = M.proxyStats(groups);
+  const base = baseCur(groups);
+  const fields = M.fieldsOf('proxy');
+  const foreign = M.foreignCurrencies(sc.items, fields);
+  const f = sc.filters.__status ?? '';
+  const pct = s2.need ? Math.round((s2.bought / s2.need) * 100) : 0;
+  const w = (n) => (s2.n ? (n / s2.n) * 100 : 0);
+  const pill = (v, label, n) => `<button type="button" class="pill${f === v ? ' active' : ''}" data-action="proxy-filter" data-v="${v}">${label}${n != null ? ` <span>${n}</span>` : ''}</button>`;
+  const isTag = sc.trip && sc.trip !== M.NO_BATCH && sc.trip !== DONE_LOOSE;
+  page.innerHTML = `<div class="proxy-page">
+    <header class="trip-head">
+      <div>
+        <div class="crumb">我的代購清單${sc.isClosed ? ' · <span class="badge tone-none">已結清</span>' : ''}</div>
+        <h1>${esc(sc.title)}</h1>
+        <p class="trip-sub">幫朋友帶點喜歡的東西回家。${tripSelect(sc)}</p>
+      </div>
+      <div class="trip-actions">
+        <details class="more-menu"><summary class="btn btn-outline btn-sm btn-icon" aria-label="更多" title="更多">⋯</summary>
+          <div class="more-list">
+            ${foreign.length ? `<button type="button" data-action="set-rate" data-kind="proxy">${icon('coins')}整批改匯率</button>` : ''}
+            <button type="button" data-action="export-csv" data-kind="proxy">${icon('download')}下載 CSV</button>
+            ${isTag && !sc.isClosed ? `<button type="button" data-action="close-batch" data-tag="${esc(sc.trip)}">${icon('check')}結清這一趟</button>` : ''}
+            ${isTag && sc.isClosed ? `<button type="button" data-action="reopen-batch" data-tag="${esc(sc.trip)}">${icon('refresh')}重新打開這一趟</button>` : ''}
+          </div></details>
+        ${sc.isClosed ? '' : `<button type="button" class="btn btn-primary" data-action="new-item" data-kind="proxy">${icon('plus')}新增商品</button>`}
+      </div>
+    </header>
+    ${sc.items.length ? `
+    <div class="kpis">
+      <div class="kpi"><span>已採購金額 ${svgIcon('wallet')}</span><b>${moneyText(s2.boughtCur, s2.boughtTWD, base)}</b>${moneyHint(s2.boughtCur, s2.boughtTWD)}</div>
+      <div class="kpi kpi-warn"><span>等待購買 ${svgIcon('bag')}</span><b>${s2.toBuy} 項</b></div>
+      <div class="kpi kpi-ok"><span>已完成採購 ${svgIcon('check')}</span><b>${s2.bought} / ${s2.need} 項</b></div>
+      <div class="kpi kpi-bad"><span>尚未收款 ${svgIcon('coins')}</span><b>${moneyText(s2.unpaidCur, s2.unpaidTWD, base)}</b><small>${s2.unpaid} 人還沒付</small></div>
+    </div>
+    <div class="progress-card">
+      <div class="progress-top"><b>整體採購進度</b><span>${pct}%</span></div>
+      <div class="stack"><i class="s-ok" style="width:${w(s2.bought)}%"></i><i class="s-warn" style="width:${w(s2.toBuy)}%"></i><i class="s-bad" style="width:${w(s2.oos)}%"></i></div>
+      <div class="legend"><em class="t-ok">● 已買 ${s2.bought}</em><em class="t-warn">● 待買 ${s2.toBuy}</em>${s2.oos ? `<em class="t-bad">● 缺貨 ${s2.oos}</em>` : ''}</div>
+      ${s2.missing ? `<p class="form-hint">${s2.missing} 件外幣沒填匯率，台幣金額沒算進去。按右上「⋯ → 整批改匯率」補上。</p>` : ''}
+    </div>` : ''}
+    <div class="list-head"><h2>朋友的購物清單</h2><span>${groups.length} 位朋友 · ${s2.n} 項商品</span></div>
+    <div class="list-tools">
+      <div class="pills">${pill('', '全部', s2.n)}${pill('待買', '待購買', s2.toBuy)}${pill('已買', '已購買', s2.bought)}${pill('缺貨', '缺貨', s2.oos)}${pill('unpaid', '未收款', s2.unpaid)}</div>
+      <input class="search-input" id="search" type="search" placeholder="搜尋商品、規格、備註…" value="${esc(state.search.proxy ?? '')}">
+    </div>
+    <div id="proxy-list">${proxyList(sc, groups)}</div>
+  </div>`;
+  $('#search').oninput = (e) => {
+    state.search.proxy = e.target.value;
+    $('#proxy-list').innerHTML = proxyList(sc, groups); // 打字不會改資料：用這次畫面算好的
+    applyIcons($('#proxy-list'));
+  };
+  const trip = $('#trip-select');
+  if (trip) trip.onchange = () => { sc.filters.__batch = trip.value; saveFilters(); render(); };
+  $('#proxy-list').onchange = (e) => {
     const sel = e.target.closest('select[data-quick]');
     if (sel) quickChange(Number(sel.dataset.id), sel.dataset.quick, sel.value);
   };
@@ -273,11 +416,11 @@ function renderKind(kind) {
 /** 新增時先帶入：欄位的預設值（例如狀態＝待買），再用目前的篩選蓋過（篩了批次、幫誰買，新增的就是那一批、那個人） */
 function newItemPreset(kind) {
   const preset = {};
-  const batch = state.filters[kind]?.__batch;
-  if (batch && batch !== M.NO_BATCH) preset.__note = batch; // 篩了批次 → 新的那件備註先寫好 #批次
+  const batch = kind === 'proxy' ? proxyScope().trip : null;
+  if (batch && batch !== M.NO_BATCH && batch !== DONE_LOOSE) preset.__note = batch; // 現在看的這一趟 → 新的那件備註先寫好 #批次
   for (const f of M.fieldsOf(kind)) {
     if (f.type !== 'choice') continue;
-    const want = state.filters[kind]?.[f.key];
+    const want = kind === 'proxy' ? null : state.filters[kind]?.[f.key];
     if (want && want !== M.EMPTY) preset[f.key] = want;
     else if (f.def) preset[f.key] = f.def;
   }
@@ -286,9 +429,10 @@ function newItemPreset(kind) {
 
 function closeBatch(tag) {
   const items = itemsOf('proxy').filter((i) => M.inBatch(i, tag));
-  const u = M.unfinished(items);
-  const warn = [u.toBuy && `${u.toBuy} 件還沒買`, u.notDelivered && `${u.notDelivered} 件買了還沒交`, u.unpaid && `${u.unpaid} 件還沒收錢（NT$${fmt(u.unpaidTWD, 0)}）`].filter(Boolean);
-  const s = M.batchSummary(items);
+  const u = M.unfinished(items, paidSet());
+  const warn = [u.toBuy && `${u.toBuy} 件還沒買`, u.notDelivered && `${u.notDelivered} 件買了還沒交`, u.unpaid && `${u.unpaid} 人還沒收錢（NT$${fmt(u.unpaidTWD, 0)}）`].filter(Boolean);
+  const groups = M.personGroups(items, paidSet());
+  const s = { n: items.length, total: groups.reduce((n, g) => n + g.total, 0), byPerson: groups };
   openModal(`<div class="modal"><form novalidate>
     ${modalHeader(`結清 ${tag}？`, '結清')}
     <p>${s.n} 件 · NT$${fmt(s.total, 0)}（${s.byPerson.map((p) => `${esc(p.who)} NT$${fmt(p.total, 0)}`).join('、')}）</p>
@@ -302,11 +446,25 @@ function closeBatch(tag) {
     e.preventDefault();
     setClosed(tag, true);
     closeModal();
-    delete state.filters.proxy.__batch;
+    delete state.filters.proxy.__batch; // 回到下一趟進行中的
     saveFilters();
     render();
     toast(`已結清 ${tag}`, 'info', { timeout: 8000, action: { label: '復原', run: () => { setClosed(tag, false); render(); } } });
   };
+}
+
+/** 收款：這個人在目前看的這幾批（keys）一次標成已收／改回未收；給「復原」 */
+function togglePaid(keys, who) {
+  const before = settingList(PAID_KEY);
+  const set = new Set(before);
+  const on = !keys.every((k) => set.has(k));
+  for (const k of keys) if (on) set.add(k); else set.delete(k);
+  setSettingList(PAID_KEY, [...set]);
+  render();
+  toast(on ? `${who} 已收款` : `${who} 改回未收款`, 'info', {
+    timeout: 6000,
+    action: { label: '復原', run: () => { setSettingList(PAID_KEY, before); render(); } },
+  });
 }
 
 function setClosed(tag, on) {
@@ -345,10 +503,17 @@ function exportCSV(kind) {
 
 function rateModal(kind) {
   const v = kindView(kind);
+  let scope;
+  if (kind === 'proxy') { // 代購：這一趟的全部物品
+    const sc = proxyScope();
+    v.shown = sc.items;
+    v.foreign = M.foreignCurrencies(sc.items, v.fields);
+    scope = `「${sc.title}」`;
+  } else {
+    const active = Object.entries(v.filters).filter(([key, x]) => x && !key.startsWith('__')).map(([key, x]) => `${v.fields.find((f) => f.key === key)?.label ?? key}＝${x}`);
+    scope = active.length ? `目前篩選（${active.join('、')}）` : '全部';
+  }
   const curs = v.foreign;
-  const active = Object.entries(v.filters).filter(([key, x]) => x && !key.startsWith('__')).map(([key, x]) => `${v.fields.find((f) => f.key === key)?.label ?? key}＝${x}`);
-  if (v.filters.__batch) active.unshift(`批次＝${v.filters.__batch}`);
-  const scope = active.length ? `目前篩選（${active.join('、')}）` : '全部';
   if (!curs.length) { toast(`${scope}沒有外幣的金額`, 'info'); return; }
   openModal(`<div class="modal"><form novalidate>
     ${modalHeader('整批改匯率', '套用')}
@@ -958,7 +1123,7 @@ function render() {
   const t = location.hash.slice(1);
   state.tab = t === 'settings' || M.KINDS[t] ? t : 'clothes';
   renderNav();
-  if (state.tab === 'settings') renderSettings(); else renderKind(state.tab);
+  if (state.tab === 'settings') renderSettings(); else if (state.tab === 'proxy') renderProxy(); else renderKind(state.tab);
   applyIcons(page);
   initSegmented(page);
 }
@@ -974,8 +1139,15 @@ const ACTIONS = {
   },
   'set-rate': (el) => rateModal(el.dataset.kind),
   'close-batch': (el) => closeBatch(el.dataset.tag),
+  'toggle-person': (el) => {
+    const f = (state.filters.proxy ||= {});
+    f.__open = { ...f.__open, [el.dataset.who]: el.getAttribute('aria-expanded') !== 'true' };
+    saveFilters();
+    render();
+  },
+  'proxy-filter': (el) => { (state.filters.proxy ||= {}).__status = el.dataset.v; saveFilters(); render(); },
+  'toggle-paid': (el) => togglePaid(el.dataset.keys.split('\n'), el.dataset.who),
   'reopen-batch': (el) => { setClosed(el.dataset.tag, false); toast(`已重新打開 ${el.dataset.tag}`); render(); },
-  'show-batch': (el) => { state.filters.proxy.__batch = el.dataset.tag; saveFilters(); render(); },
   'export-csv': (el) => exportCSV(el.dataset.kind),
   export: () => downloadFile(`${APP_ID}-backup-${db.today()}.json`, JSON.stringify(db.exportAll(), null, 1)),
   'clear-local': () => clearLocal(),
@@ -998,6 +1170,10 @@ document.addEventListener('click', (e) => {
   if (el.tagName === 'A') e.preventDefault();
   ACTIONS[el.dataset.action](el);
 });
+// 朋友標題是 role=button：Enter／空白鍵也能收合
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pc-head')) { e.preventDefault(); e.target.click(); }
+});
 // 點視窗外面（暗色區域）關閉
 document.addEventListener('click', (e) => { if (e.target.matches('dialog.modal-overlay[open]')) e.target.close(); });
 window.addEventListener('hashchange', render);
@@ -1007,6 +1183,9 @@ window.appRefresh = () => { if (!modal.open) render(); }; // 同步拉到別台�
 /** 代購舊版的「批次」欄 → 備註的 #標籤（開網站、匯入之後跑；只看代購） */
 function migrateBatches() {
   for (const i of itemsOf('proxy')) { const r = M.migrateBatch(i); if (r) db.update('items', i.id, r); }
+  const { paidKeys, changes } = M.migratePaid(itemsOf('proxy'));
+  if (paidKeys.length) setSettingList(PAID_KEY, [...new Set([...settingList(PAID_KEY), ...paidKeys])]);
+  for (const c of changes) db.update('items', c.id, { data: c.data });
 }
 
 /** 舊版（可以自己加種類）存在這台電腦的資料：轉成新版（items 加 kind，拿掉 collections） */

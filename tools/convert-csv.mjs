@@ -214,7 +214,6 @@ export function proxyTable(rows, batch) {
     const data = {};
     if (c(0)) data.f1 = c(0);
     data.f2 = /✅|✔|v|已買/i.test(c(1)) ? '已買' : '待買';
-    data.f3 = '未收';
     const spec = [c(3), c(4).replace(/^カラー\s*[:：]\s*/, '')].filter(Boolean).join('／');
     if (spec) data.f5 = spec;
     if (c(5)) data.f6 = c(5);

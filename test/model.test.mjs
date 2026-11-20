@@ -167,23 +167,59 @@ test('最近用過的人：新的在前、不重複、按 ✕ 隱藏的不推薦
   assert.deepEqual(m.recentValues(items, 'f1', { hidden: ['甲'], max: 1 }), ['丙']);
 });
 
-test('結清：有標籤看標籤有沒有結清；零星的處理完就收起來', () => {
+test('結清：有標籤看標籤有沒有結清；零星的已交貨＋那個人收了錢才收起來', () => {
   const closed = new Set(['#舊旅行']);
-  const it = (note, f2, f3) => ({ id: 1, name: 'x', note, data: JSON.stringify({ f2, f3 }) });
-  assert.equal(m.isArchived(it('#舊旅行', '待買', '未收'), closed), true);
-  assert.equal(m.isArchived(it('#新旅行', '已交貨', '已收'), closed), false);
-  assert.equal(m.isArchived(it('', '已交貨', '已收'), closed), true);
-  assert.equal(m.isArchived(it('', '缺貨', '未收'), closed), true);
-  assert.equal(m.isArchived(it('', '已買', '已收'), closed), false);
+  const it = (note, f2, f1 = '甲') => ({ id: 1, name: 'x', note, data: JSON.stringify({ f1, f2 }) });
+  const paid = new Set([m.payKey('', '甲')]);
+  assert.equal(m.isArchived(it('#舊旅行', '待買'), closed, paid), true);
+  assert.equal(m.isArchived(it('#新旅行', '已交貨'), closed, paid), false);
+  assert.equal(m.isArchived(it('', '已交貨'), closed, paid), true);
+  assert.equal(m.isArchived(it('', '已交貨', '乙'), closed, paid), false); // 乙還沒收
+  assert.equal(m.isArchived(it('', '缺貨', '乙'), closed, paid), true);
+  assert.equal(m.isArchived(it('', '已買'), closed, paid), false);
   const list = [
-    item('a', { f1: '甲', f2: '待買', f3: '未收', f7: 2, f8: { a: 100, c: 'TWD', r: 1 } }),
-    item('b', { f1: '甲', f2: '已買', f3: '已收', f8: { a: 50, c: 'TWD', r: 1 } }),
-    item('c', { f1: '乙', f2: '缺貨', f3: '未收', f8: { a: 999, c: 'TWD', r: 1 } }),
+    item('a', { f1: '甲', f2: '待買', f7: 2, f8: { a: 100, c: 'TWD', r: 1 } }),
+    item('b', { f1: '甲', f2: '已買', f8: { a: 50, c: 'TWD', r: 1 } }),
+    item('c', { f1: '乙', f2: '缺貨', f8: { a: 999, c: 'TWD', r: 1 } }),
   ];
-  assert.deepEqual(m.unfinished(list), { toBuy: 1, notDelivered: 1, unpaid: 1, unpaidTWD: 200 });
-  const sum = m.batchSummary(list);
-  assert.equal(sum.total, 250);
-  assert.deepEqual(sum.byPerson.map((p) => [p.who, p.total]), [['甲', 250], ['乙', 0]]);
+  assert.deepEqual(m.unfinished(list), { toBuy: 1, notDelivered: 1, unpaid: 1, unpaidTWD: 250 }); // 乙全部缺貨，不用收
+  assert.deepEqual(Object.fromEntries(m.personGroups(list, new Set()).map((p) => [p.who, p.total])), { 甲: 250, 乙: 0 });
+});
+
+test('代購每個人：應收（單價×數量、缺貨不算）、進度、收款狀態和總覽', () => {
+  const list = [
+    { ...item('a', { f1: '甲', f2: '已買', f7: 2, f8: { a: 1000, c: 'JPY', r: 0.2 } }), note: '#東京' },
+    { ...item('b', { f1: '甲', f2: '待買', f8: { a: 500, c: 'JPY', r: 0.2 } }), note: '#東京' },
+    { ...item('c', { f1: '甲', f2: '缺貨', f8: { a: 9999, c: 'JPY', r: 0.2 } }), note: '#東京' },
+    { ...item('d', { f1: '乙', f2: '已交貨', f8: { a: 300, c: 'TWD', r: 1 } }), note: '#東京' },
+  ];
+  const paid = new Set([m.payKey('#東京', '乙')]);
+  const [jia, yi] = m.personGroups(list, paid); // 沒收的排前面
+  assert.equal(jia.who, '甲');
+  assert.equal(jia.total, 500); // (1000×2 + 500) × 0.2
+  assert.deepEqual(jia.byCur, { JPY: 2500 });
+  assert.deepEqual([jia.n, jia.need, jia.bought, jia.oos, jia.paid], [3, 2, 1, 1, false]);
+  assert.deepEqual([yi.who, yi.total, yi.paid], ['乙', 300, true]);
+  assert.deepEqual([jia.owed, jia.owedCur, jia.toBuy], [400, { JPY: 2000 }, 1]); // 目前應收只算買到的
+  assert.deepEqual(m.proxyStats([jia, yi]), {
+    missing: 0, n: 4, need: 3, toBuy: 1, bought: 2, oos: 1, unpaid: 1,
+    boughtTWD: 700, boughtCur: { JPY: 2000, TWD: 300 }, unpaidTWD: 400, unpaidCur: { JPY: 2000 },
+  });
+});
+
+test('舊的商品層級收錢 → 一批一個人的收款：全部已收才算收了；f3 拿掉', () => {
+  const list = [
+    { id: 1, name: 'a', note: '#東京', data: JSON.stringify({ f1: '甲', f3: '已收' }) },
+    { id: 2, name: 'b', note: '#東京', data: JSON.stringify({ f1: '甲', f3: '已收' }) },
+    { id: 3, name: 'c', note: '#東京', data: JSON.stringify({ f1: '乙', f3: '已收' }) },
+    { id: 4, name: 'd', note: '#東京', data: JSON.stringify({ f1: '乙', f3: '未收' }) },
+    { id: 5, name: 'e', note: '', data: JSON.stringify({ f1: '丙' }) },
+  ];
+  const r = m.migratePaid(list);
+  assert.deepEqual(r.paidKeys, ['#東京|甲']);
+  assert.equal(r.changes.length, 4);
+  assert.deepEqual(JSON.parse(r.changes[0].data), { f1: '甲' });
+  assert.deepEqual(m.migratePaid([{ id: 1, name: 'x', note: '', data: '{}' }]), { paidKeys: [], changes: [] });
 });
 
 test('舊的批次欄 → 備註標籤；台灣價格只能是台幣', () => {

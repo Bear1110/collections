@@ -80,7 +80,7 @@ test('代購表：買了沒、規格合併、商品頁標題整理、備註裡�
   const list = proxyTable(rows, '第一批');
   assert.equal(list.length, 2);
   assert.equal(list[0].name, '假褲子(メンズ)');
-  assert.deepEqual(list[0].data, { f1: '甲', f2: '已買', f3: '未收', f5: 'S／09 BLACK', f6: '123456', f7: 2, f8: { a: 2990, c: 'JPY', r: null }, f10: 'ユニクロ公式 | 假褲子(メンズ)' });
+  assert.deepEqual(list[0].data, { f1: '甲', f2: '已買', f5: 'S／09 BLACK', f6: '123456', f7: 2, f8: { a: 2990, c: 'JPY', r: null }, f10: 'ユニクロ公式 | 假褲子(メンズ)' });
   assert.equal(list[0].note, '原價 ¥3990 #第一批');
   assert.equal(list[1].note, '#第一批');
   assert.equal(list[1].data.f2, '待買');

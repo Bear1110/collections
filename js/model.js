@@ -14,11 +14,12 @@
 //   fixed   （單選）只能從選項選，不能輸入新的
 //   chips   （單選）用最近用過的值當快速按鈕（可以按 ✕ 不再推薦），也能輸入新的
 //   twdOnly （金額）只能填台幣
+//   tones   （單選）值 → 顏色（ok 綠、warn 黃、bad 紅、info 藍），列表上顯示成色塊
 //   quietValues （單選）手機卡片上不寫的值（常態，例如衣服的「在穿」）
 //   hideValues （單選）這些值的物品平常不顯示，篩選這一欄選到它才看得到（衣服的「已丟」）
 
 export const CURRENCIES = ['TWD', 'JPY', 'USD', 'EUR'];
-const CURRENCY_SIGN = { TWD: 'NT$', JPY: '¥', USD: 'US$', EUR: '€' };
+export const CURRENCY_SIGN = { TWD: 'NT$', JPY: '¥', USD: 'US$', EUR: '€' };
 
 export const EMPTY = '（未填）';
 
@@ -37,7 +38,7 @@ export const KINDS = {
       f('f6', '色系', 'choice', { options: ['黑', '白', '灰', '藍', '綠', '棕', '米', '紅', '橘', '黃', '紫', '粉', '牛仔', '多色'], filter: true, fixed: true }),
       f('f7', '價格', 'money', { list: true }),
       f('f8', '購入', 'date', { list: true }),
-      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true, hideValues: ['已丟'], quietValues: ['在穿'] }),
+      f('f9', '狀態', 'choice', { options: ['在穿', '想丟', '已丟'], filter: true, list: true, def: '在穿', fixed: true, hideValues: ['已丟'], quietValues: ['在穿'], tones: { 想丟: 'warn', 已丟: 'bad' } }),
       f('f10', '網址', 'url', { list: true }),
       f('f11', '商品編號', 'text'),
     ],
@@ -59,8 +60,9 @@ export const KINDS = {
     name: '代購', icon: 'bag', group_by: 'f1',
     fields: [
       f('f1', '幫誰買', 'choice', { options: [], filter: true, list: true, chips: true }),
-      f('f2', '狀態', 'choice', { options: ['待買', '已買', '缺貨', '已交貨'], filter: true, list: true, quick: true, noSum: ['缺貨'], def: '待買', fixed: true }),
-      f('f3', '收錢', 'choice', { options: ['未收', '已收'], filter: true, list: true, quick: true, def: '未收', fixed: true }),
+      f('f2', '狀態', 'choice', { options: ['待買', '已買', '缺貨', '已交貨'], filter: true, list: true, quick: true, noSum: ['缺貨'], def: '待買', fixed: true,
+        tones: { 待買: 'warn', 已買: 'ok', 已交貨: 'info', 缺貨: 'bad' } }),
+      // f3 是舊版商品層級的「收錢」，改成「一批 × 一個人」的收款狀態（settings paid.proxy，見 personGroups），代號不要重用
       // f4 是舊版的「批次」欄，改成備註裡的 #標籤（見 migrateBatch），代號不要重用
       f('f5', '規格', 'text', { list: true }),
       f('f6', '型號', 'text'),
@@ -459,43 +461,124 @@ export function recentValues(items, key, { hidden = [], max = 8 } = {}) {
 
 // ---------------------------------------------------------------- 代購：結清
 
-/** 不用再處理的：缺貨，或已交貨而且已收錢 */
-export function proxyDone(item) {
+// 收款是「一批 × 一個人」的事：一次跟朋友收這一趟所有東西的錢。結清、收款都記在 settings，不改物品資料。
+// paid：收過錢的 payKey（小寫）的 Set。
+
+/** 物品屬於哪一批：備註的第一個 #標籤（小寫）；沒有標籤是 ''（零星） */
+export const batchOf = (item) => (noteTags(item.note)[0] ?? '').toLowerCase();
+/** 收款的單位：哪一批的哪個人 */
+export const payKey = (batch, who) => `${batch}|${String(who ?? '').trim().toLowerCase()}`;
+const whoOf = (item) => dataOf(item).f1 ?? '';
+export const BOUGHT = ['已買', '已交貨'];
+/** 代購商品的採購狀態，沒填當「待買」（欄位的預設值） */
+export const statusOf = (item) => dataOf(item).f2 || KINDS.proxy.fields.find((x) => x.key === 'f2').def;
+
+/** 不用再處理的：缺貨，或已交貨而且那個人這一批的錢收了 */
+export function proxyDone(item, paid) {
   const d = dataOf(item);
-  return d.f2 === '缺貨' || (d.f2 === '已交貨' && d.f3 === '已收');
+  return d.f2 === '缺貨' || (d.f2 === '已交貨' && paid.has(payKey(batchOf(item), d.f1)));
 }
 
 /** 收起來的：有標籤而且標籤結清了；沒標籤的（零星）處理完就自動收起來。closed 是結清的標籤（小寫） */
-export function isArchived(item, closed) {
+export function isArchived(item, closed, paid = new Set()) {
   const tags = noteTags(item.note);
   if (tags.length) return tags.some((t) => closed.has(t.toLowerCase()));
-  return proxyDone(item);
+  return proxyDone(item, paid);
 }
 
-/** 結清前的提醒：還沒買的、買了還沒交的、還沒收錢的（缺貨的不用收） */
-export function unfinished(items) {
+/**
+ * 依朋友分組，每組：應收（單價×數量，缺貨不算；台幣合計＋各幣別原價合計）、採購進度、收款狀態。
+ * 收款狀態：這些物品涉及的每個 payKey 都收了才算已收（同一個人跨好幾批的話，要每批都收）。
+ * 沒收的排前面，再照名字。
+ */
+/** 各幣別原價合計（單價 × 數量）：{ JPY: 12230, TWD: 300 } */
+function curSums(items, price) {
+  const out = {};
+  for (const i of items) {
+    const d = dataOf(i);
+    const m = normMoney(d[price.key]);
+    if (m) out[m.c] = (out[m.c] ?? 0) + m.a * qtyOf(price, d);
+  }
+  return out;
+}
+
+/** 幣別合計相加 */
+const addCur = (a, b) => { const out = { ...a }; for (const [c, v] of Object.entries(b)) out[c] = (out[c] ?? 0) + v; return out; };
+
+export function personGroups(items, paid) {
   const fields = fieldsOf('proxy');
   const price = fields.find((x) => x.key === 'f8');
+  const byWho = new Map();
+  for (const i of items) {
+    const who = String(whoOf(i)).trim() || EMPTY;
+    if (!byWho.has(who)) byWho.set(who, []);
+    byWho.get(who).push(i);
+  }
+  const groups = [...byWho].map(([who, list]) => {
+    const keys = [...new Set(list.map((i) => payKey(batchOf(i), who === EMPTY ? '' : who)))];
+    const counted = list.filter((i) => countsTowardSum(i, fields));
+    const boughtItems = counted.filter((i) => BOUGHT.includes(dataOf(i).f2));
+    const { total, missing } = sumTWD(list, price, fields);
+    const owed = sumTWD(boughtItems, price, fields);
+    return {
+      who, items: list, keys, total, missing, byCur: curSums(counted, price),
+      // 目前應收：只算已經買到的（待買的還不知道買不買得到）
+      owed: owed.total, owedCur: curSums(boughtItems, price),
+      n: list.length, need: counted.length, oos: list.length - counted.length,
+      bought: boughtItems.length, toBuy: counted.length - boughtItems.length,
+      paid: keys.every((k) => paid.has(k)),
+    };
+  });
+  return groups.sort((a, b) => a.paid - b.paid || (a.who === EMPTY) - (b.who === EMPTY) || a.who.localeCompare(b.who, 'zh-Hant'));
+}
+
+/** 頁面最上面的總覽：各朋友的數字加起來（件數、待買／已買／缺貨、收款人數、已採購和尚未收款的金額） */
+export function proxyStats(groups) {
+  const sum = (k) => groups.reduce((n, g) => n + g[k], 0);
+  const unpaid = groups.filter((g) => !g.paid);
+  return {
+    missing: sum('missing'), n: sum('n'), need: sum('need'),
+    toBuy: sum('toBuy'), bought: sum('bought'), oos: sum('oos'),
+    unpaid: unpaid.filter((g) => g.need).length,
+    // 已採購金額：已買到的；尚未收款：還沒收錢的人目前應收的
+    boughtTWD: sum('owed'),
+    boughtCur: groups.reduce((cur, g) => addCur(cur, g.owedCur), {}),
+    unpaidTWD: unpaid.reduce((n, g) => n + g.owed, 0),
+    unpaidCur: unpaid.reduce((cur, g) => addCur(cur, g.owedCur), {}),
+  };
+}
+
+/** 結清前的提醒：還沒買的、買了還沒交的、還沒收錢的人（缺貨的不用買） */
+export function unfinished(items, paid = new Set()) {
+  const fields = fieldsOf('proxy');
   let toBuy = 0;
   let notDelivered = 0;
-  const unpaidItems = [];
   for (const i of items) {
-    if (!countsTowardSum(i, fields)) continue; // 缺貨的不用買、不用收
-    const d = dataOf(i);
-    if (!d.f2 || d.f2 === '待買') toBuy++;
-    else if (d.f2 === '已買') notDelivered++;
-    if (d.f3 !== '已收') unpaidItems.push(i);
+    if (!countsTowardSum(i, fields)) continue;
+    const st = statusOf(i);
+    if (st === '待買') toBuy++;
+    else if (st === '已買') notDelivered++;
   }
-  return { toBuy, notDelivered, unpaid: unpaidItems.length, unpaidTWD: sumTWD(unpaidItems, price, fields).total };
+  const unpaid = personGroups(items, paid).filter((g) => !g.paid && g.need);
+  return { toBuy, notDelivered, unpaid: unpaid.length, unpaidTWD: unpaid.reduce((n, g) => n + g.total, 0) };
 }
 
-/** 一批的摘要：件數、合計、每個人多少（缺貨不算） */
-export function batchSummary(items) {
-  const fields = fieldsOf('proxy');
-  const price = fields.find((x) => x.key === 'f8');
-  const who = fields.find((x) => x.key === 'f1');
-  const byPerson = groupItems(items, who).map((g) => ({ who: g.value, n: g.items.length, total: sumTWD(g.items, price, fields).total }));
-  return { n: items.length, total: sumTWD(items, price, fields).total, byPerson };
+/**
+ * 舊版商品層級的「收錢」（f3）→ 收款狀態：同一批同一個人的東西全部「已收」，那個人那一批就算收了。
+ * 回傳 { paidKeys, changes: [{ id, data }]（拿掉 f3）}；沒有舊資料就是空的。
+ */
+export function migratePaid(items) {
+  const groups = new Map();
+  const changes = [];
+  for (const i of items) {
+    const d = dataOf(i);
+    if (!('f3' in d)) continue;
+    const k = payKey(batchOf(i), d.f1);
+    groups.set(k, (groups.get(k) ?? true) && d.f3 === '已收');
+    delete d.f3;
+    changes.push({ id: i.id, data: JSON.stringify(d) });
+  }
+  return { paidKeys: [...groups].filter(([, all]) => all).map(([k]) => k), changes };
 }
 
 /** 舊版的「批次」欄（f4）→ 備註的 #標籤。不用轉回傳 null */
