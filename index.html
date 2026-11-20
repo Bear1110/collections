@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 私人工具不要被搜尋引擎收錄；公開的網站把這行拿掉 -->
+  <meta name="robots" content="noindex, nofollow">
+  <!-- CSP：只允許連到自己、Google 登入與試算表（apis.google.com、docs.google.com 是檔案選擇器）。新增外部服務時要加在 connect-src，不然會被擋。
+       不允許 inline script：按鈕一律用 data-action（見 docs/ui-guidelines.md） -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://accounts.google.com/gsi/client https://apis.google.com;
+    style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style;
+    img-src 'self' data:;
+    connect-src 'self' https://sheets.googleapis.com https://www.googleapis.com https://accounts.google.com/gsi/;
+    frame-src https://accounts.google.com/gsi/ https://docs.google.com;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+  ">
+  <title>收藏整理</title>
+  <link rel="icon" href="icons/icon-192.png">
+  <!-- 加到主畫面。crossorigin=use-credentials：網站在 Cloudflare Access 後面時，讀 manifest 也要帶登入狀態 -->
+  <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#1a2332">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="css/style.css">
+  <script id="gis" src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- 導覽列：分頁用 <a href="#頁面">，手機自動變成底部分頁列；圖示見 ui.js 的 ICONS -->
+  <nav id="main-nav">
+    <div class="nav-brand"><img src="icons/icon-192.png" width="28" height="28" alt=""><span id="brand-name"></span></div>
+    <!-- 分頁由 app.js 的 renderNav() 產生：全部、釘選的收藏種類（最多 3 個）、設定 -->
+    <div class="nav-tabs" id="nav-tabs"></div>
+    <button type="button" id="sync-pill" class="sync-pill" data-action="sync-pill" title="雲端同步狀態"><svg aria-hidden="true"><use id="sync-icon" href="#i-cloud-off"/></svg><span id="sync-count" class="sync-count"></span><span id="sync-pill-text" class="sync-text">本機</span></button>
+  </nav>
+  <main id="app-content">
+    <div id="banner" class="banner" hidden></div>
+    <div id="page"></div>
+  </main>
+  <dialog id="modal" class="modal-overlay"></dialog>
+  <div id="toast-container" popover="manual" role="status"></div>
+  <div id="print-root"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

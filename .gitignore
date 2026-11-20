@@ -1,0 +1,13 @@
+.DS_Store
+Thumbs.db
+node_modules/
+.vscode/
+
+# 真實資料、備份、匯出：機密，絕不 commit
+REALDATA/
+*-backup*.json
+*.csv
+*.xlsx
+
+# 截圖（可能有資料）
+shots/
